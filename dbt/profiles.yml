@@ -7,6 +7,6 @@ dagster_dbt:
       password: dagster
       port: 5432
       dbname: dagster
-      schema: public
+      schema: analytics
       threads: 2
   target: dev

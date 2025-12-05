@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: public_sources
+    database: "{{ target.database }}"
+    schema: public
+    tables:
+      - name: source1
+      - name: source2
+      - name: source3
+      - name: weather

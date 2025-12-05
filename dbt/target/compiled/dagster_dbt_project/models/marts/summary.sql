@@ -1,15 +1,26 @@
-WITH joined AS (
-  SELECT 
-    s1.id, 
-    s1.value_x2, 
-    s2.score_plus_one, 
-    s3.is_a 
-    --, w.temperature, w.windSpeed
-  FROM "dagster"."public"."source1" s1
-  JOIN "dagster"."public"."source2" s2 USING (id)
-  JOIN "dagster"."public"."source3" s3 USING (id)
+
+
+with 
+
+src_1 as ( select * from "dagster"."analytics"."stg_source_1"),
+src_2 as (select * from "dagster"."analytics"."stg_source_2" ),
+src_3 as (select * from "dagster"."analytics"."stg_source_3" ),
+weather as (select * from "dagster"."analytics"."stg_weather"),
+
+joined as (
+    select
+        src_1.id,
+        src_1.value_x2,
+        src_2.score_plus_one,
+        src_3.is_a,
+        weather.wind_speed
+    from src_1
+    join src_2 using (id)
+    join src_3 using (id)
+    left join weather on src_3.is_a = 1
 )
-SELECT 
-  *, 
-  (value_x2 + score_plus_one) * is_a AS metric 
-FROM joined
+
+select
+    *,
+    (value_x2 + score_plus_one) * is_a as metric
+from joined

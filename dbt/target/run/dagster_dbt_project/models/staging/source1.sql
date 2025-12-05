@@ -1,5 +1,5 @@
 
-  create view "dagster"."public"."source1__dbt_tmp"
+  create view "dagster"."analytics"."source1__dbt_tmp"
     
     
   as (

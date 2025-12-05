@@ -7,6 +7,7 @@ def weather_source():
     url = "https://api.weather.gov/gridpoints/MTR/88,126/forecast"
     r = requests.get(url)
     r.raise_for_status()
+    # print(r.json()) # trouble shoot requst json!
     periods = r.json()["properties"]["periods"]
-    df = pd.DataFrame(periods)[["name", "temperature", "windSpeed"]]
+    df = pd.DataFrame(periods)[["name", "temperature", "windSpeed", "startTime"]]
     return df

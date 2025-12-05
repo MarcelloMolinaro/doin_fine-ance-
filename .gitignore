@@ -1,0 +1,33 @@
+# Python / virtual env
+__pycache__/
+*.py[cod]
+*.pyo
+.python-version
+.venv/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+
+# IDE / OS noise
+.DS_Store
+.idea/
+.vscode/
+
+# Dagster runtime state
+dagster/storage/
+dagster/history/
+dagster/logs/
+dagster/schedules/*.db
+
+# dbt build artifacts
+dbt/target/
+dbt/logs/
+dbt/.user.yml
+
+# Test / coverage caches
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+
