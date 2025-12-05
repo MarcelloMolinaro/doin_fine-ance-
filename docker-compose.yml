@@ -1,0 +1,43 @@
+version: '3.9'
+
+services:
+  dagster:
+    build: ./dagster
+    container_name: dagster
+    ports:
+      - "3000:3000"
+    environment:
+      DAGSTER_HOME: /opt/dagster/app
+      DBT_PROFILES_DIR: /opt/dbt
+    volumes:
+      - ./dagster:/opt/dagster/app
+      - ./dbt:/opt/dbt
+    command: >
+      bash -c "
+      dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml &
+      dagster-daemon run"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: dagster
+      POSTGRES_DB: dagster
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dagster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+volumes:
+  postgres_data:

@@ -1,0 +1,4 @@
+name: dagster_dbt_project
+version: '1.0'
+profile: dagster_dbt
+model-paths: ["models"]

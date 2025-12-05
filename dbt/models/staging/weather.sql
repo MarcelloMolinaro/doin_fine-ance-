@@ -1,0 +1,12 @@
+{{ config(
+    enabled = false
+    )
+}}
+
+
+SELECT 1
+--     name, 
+--     temperature, 
+--     windSpeed, 
+--     temperature * 1.8 + 32 AS temperature_f 
+-- FROM public.weather

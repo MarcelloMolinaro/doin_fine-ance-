@@ -1,0 +1,12 @@
+dagster_dbt:
+  outputs:
+    dev:
+      type: postgres
+      host: postgres
+      user: dagster
+      password: dagster
+      port: 5432
+      dbname: dagster
+      schema: public
+      threads: 2
+  target: dev
