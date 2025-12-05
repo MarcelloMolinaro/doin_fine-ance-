@@ -30,4 +30,8 @@ dbt/.user.yml
 .mypy_cache/
 .coverage
 
+# Dagster local state
+.local_defs_state/
 
+# Logs / runtime outputs (optional but common)
+*.log
