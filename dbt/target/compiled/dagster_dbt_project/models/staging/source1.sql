@@ -1,1 +1,0 @@
-SELECT id, value, value * 2 AS value_x2 FROM public.source1
