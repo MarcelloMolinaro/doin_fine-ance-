@@ -2,6 +2,7 @@ from dagster import Definitions, asset
 import pandas as pd
 from sqlalchemy import create_engine, text
 from extractors.weather_api import weather_source
+from extractors.simplefin_api import simplefin_financial_data
 
 @asset
 def source1():
@@ -19,7 +20,7 @@ def source3():
     return data
 
 @asset
-def load_to_postgres(context, source1, source2, source3, weather_source):
+def load_to_postgres(context, source1, source2, source3, weather_source, simplefin_financial_data):
     engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
     # Avoid dropping raw tables (dbt views depend on them). Truncate then append.
     with engine.begin() as conn:
@@ -27,10 +28,12 @@ def load_to_postgres(context, source1, source2, source3, weather_source):
         conn.execute(text("TRUNCATE TABLE public.source2"))
         conn.execute(text("TRUNCATE TABLE public.source3"))
         conn.execute(text("DROP TABLE IF EXISTS public.weather"))
+        conn.execute(text("DROP TABLE IF EXISTS public.simplefin"))
     source1.to_sql('source1', engine, schema='public', if_exists='append', index=False, method='multi')
     source2.to_sql('source2', engine, schema='public', if_exists='append', index=False, method='multi')
     source3.to_sql('source3', engine, schema='public', if_exists='append', index=False, method='multi')
     weather_source.to_sql('weather', engine, schema='public', if_exists='replace', index=False, method='multi')
+    simplefin_financial_data.to_sql('simplefin', engine, schema='public', if_exists='replace', index=False, method='multi')
     engine.dispose()
     context.log.info("Loaded all sources into Postgres.")
 
@@ -54,5 +57,5 @@ def run_dbt(context, load_to_postgres):
         raise Exception("dbt run failed")
     context.log.info("dbt transformations complete.")
 
-all_assets = [source1, source2, source3, weather_source, load_to_postgres, run_dbt]
+all_assets = [source1, source2, source3, weather_source, simplefin_financial_data, load_to_postgres, run_dbt]
 definitions = Definitions(assets=all_assets)

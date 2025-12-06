@@ -35,3 +35,8 @@ dbt/.user.yml
 
 # Logs / runtime outputs (optional but common)
 *.log
+
+# Environment variables and secrets
+.env
+.env.local
+docker-compose.override.yml
