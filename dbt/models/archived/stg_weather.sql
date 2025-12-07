@@ -1,6 +1,6 @@
 {{ config(
     materialized = 'view',
-    enabled = true
+    enabled = false
 ) }}
 
 with source as (

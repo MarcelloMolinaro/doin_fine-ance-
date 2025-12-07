@@ -5,7 +5,26 @@ sources:
     database: "{{ target.database }}"
     schema: public
     tables:
+      - name: simplefin
+        description: "SimpleFIN raw financial data. Loaded every xxx days."
+        columns:
+          - name: transaction_id
+          - name: account_id
+          - name: account_name
+          - name: institution_domain
+          - name: institution_name
+          - name: amount
+          - name: posted
+          - name: posted_date
+          - name: transacted_at
+          - name: transacted_date
+          - name: description
+          - name: pending
       - name: source1
+        description: deprecated 
       - name: source2
+        description: deprecated
       - name: source3
+        description: deprecated
       - name: weather
+        description: deprecated
