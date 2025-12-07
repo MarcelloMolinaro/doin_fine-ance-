@@ -17,7 +17,7 @@ transformed_historic as (
         null::text as institution_domain,
         null::text as institution_name,
         amount::numeric as amount,
-        null::boolean as posted,
+        null::bigint as posted,
         null::date as posted_date,
         null::bigint as transacted_at,
         transaction_date::date as transacted_date,
@@ -25,8 +25,8 @@ transformed_historic as (
         null::boolean as pending,
         source_category::text as source_category,
         master_category::text as master_category,
-        input_date::timestamp as import_timestamp,
-        input_date::date as import_date
+        -- null::timestamp as import_timestamp,
+        to_date(input_date, 'MM/DD/YYYY') as import_date
     from src_historic
 ),
 
@@ -48,8 +48,8 @@ final as (
         pending,
         null as source_category,
         null as master_category,
-        import_timestamp,
-        import_date,
+        -- import_timestamp,
+        -- import_date,
         'simplefin' as source_name
     from src_simplefin
 
@@ -71,8 +71,8 @@ final as (
         pending,
         source_category,
         master_category,
-        import_timestamp,
-        import_date,
+        -- import_timestamp,
+        -- import_date,
         'historic' as source_name
     from transformed_historic
 
