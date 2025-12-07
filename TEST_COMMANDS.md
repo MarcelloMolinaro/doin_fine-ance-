@@ -78,3 +78,8 @@ Open: http://localhost:3000
 docker exec -it dagster dagster asset materialize -m repo -a source1 source2 source3 load_to_postgres run_dbt
 ```
 
+## Test the simplefin_api.py script
+
+```bash
+docker compose exec dagster python /opt/dagster/app/extractors/simplefin_api.py
+```

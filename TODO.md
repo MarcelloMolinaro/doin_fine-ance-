@@ -1,18 +1,22 @@
 # TODOs
 
-- Delete committed artifacts/logs and tighten `.gitignore`
-- Add a Databricks source integration and test end-to-end
-- Build Python models to pull data from SimpleFIN
+[x] Build Python models to pull data from SimpleFIN
+   - Resolve all to-do's in the simplefin_api.py doc
 - Enable dbt <> dagster connection so I don't need to define each source? I haven't built any of this out yet
-- Stop truncating source tables and start inserting/appending (especially finance data!)
+[ ] Add a Databricks source integration and test end-to-end
+[ ] Stop truncating source tables and start inserting/appending (especially finance data!)
+   - create a qualify statement that only takes the most recent data and handles dupes!
+[ ] Add remaining sources (Chase Marcello, Chase Allegra, Mntn 1)
 
-- Create a config files that manages all secrets, passwords, etc.
+- Delete committed artifacts/logs and tighten `.gitignore`
+- [SKipping for now] ~Create a config files that manages all secrets, passwords, etc.~
 - Move profiles OUT of dbt or stop tracking it, or both
 
-## Testing SimpleFIN Extractor (simplefin_api.py)
+# Resources
+- SimpleFin Dev Tools: https://www.simplefin.org/protocol.html
+- https://beta-bridge.simplefin.org/my-account
 
-### Testing the Extractor in Docker Container
-
+### Testing
 You can test the extractor directly in the Dagster container without running the full Dagster UI:
 
 **Option 1: Run directly in the container**
@@ -20,66 +24,107 @@ You can test the extractor directly in the Dagster container without running the
 # Make sure your container is running
 docker-compose up -d
 
-# Run the extractor with environment variable
-docker-compose exec -e SIMPLEFIN_ACCESS_URL="https://username:password@bridge.simplefin.org/simplefin" dagster python /opt/dagster/app/extractors/simplefin_api.py
-```
-
-**Option 2: Add environment variable to docker-compose.yml**
-Add to the `dagster` service environment section:
-```yaml
-environment:
-  DAGSTER_HOME: /opt/dagster/app
-  DBT_PROFILES_DIR: /opt/dbt
-  SIMPLEFIN_ACCESS_URL: "https://username:password@bridge.simplefin.org/simplefin"
-```
-
-Then run:
-```bash
+# Run the extractor
 docker-compose exec dagster python /opt/dagster/app/extractors/simplefin_api.py
 ```
 
-**Option 3: Interactive shell in container**
-```bash
-# Get a shell in the container
-docker-compose exec dagster bash
+Next steps - Categories!
 
-# Inside the container, set the environment variable and run
-export SIMPLEFIN_ACCESS_URL="https://username:password@bridge.simplefin.org/simplefin"
-python /opt/dagster/app/extractors/simplefin_api.py
-```
+## ML Transaction Categorization Pipeline
 
-### Testing the Extractor in Dagster UI
+### Step 3: Train Model on Historical Data
+- [ ] Create Dagster asset for model training
+  - Read unified transactions from dbt (historical + simplefin combined)
+  - Split data: 80% train, 20% test (stratified if imbalanced)
+  - Feature engineering:
+    - Merchant name
+    - Description text
+    - MCC code (if available)
+    - Amount (optional)
+  - Vectorize text using embeddings (TF-IDF or sentence embeddings)
+  - Train classifier (see classifier options below)
+  - Evaluate: Accuracy, Macro F1, Confusion Matrix, Calibration Curve
+  - Save model artifact (pickle/joblib) to shared location
+  - Log model version and metrics
 
-1. **Add the asset to repo.py**:
-   - Import: `from extractors.simplefin_api import simplefin_financial_data`
-   - Add to `all_assets` list: `all_assets = [source1, source2, source3, weather_source, simplefin_financial_data, load_to_postgres, run_dbt]`
+### Step 4: Run Model on New Data & Add Predictions
+- [ ] Create Dagster asset for inference
+  - Load trained model artifact
+  - Run inference on new SimpleFin transactions
+  - Add `prediction_category` and `prediction_score` columns
+  - Write predictions back to DB (new table or append to existing)
+  - Handle confidence thresholds (maybe only predict if score > threshold)
+  - Track model version used for each prediction
 
-2. **Run Dagster and test the asset**:
-   ```bash
-   dagster dev
-   ```
-   - Navigate to the Dagster UI (usually http://localhost:3000)
-   - Find the `simplefin_financial_data` asset
-   - Click "Materialize" to run it
+### Step 5: UI for Review & Editing
+- [ ] Build Streamlit app (recommended) or alternative UI
+  - Display transactions with predictions
+  - Filter by: low confidence, uncategorized, date range, etc.
+  - Allow editing/correcting categories
+  - Save corrections back to DB
+  - "Retrain model" button that triggers Dagster job
+  - Show model performance metrics
 
-3. **Verify the output**:
-   - Check that the asset materializes successfully
-   - View the output DataFrame in the Dagster UI
-   - Verify it contains:
-     - Transaction data (transaction_id, amount, posted_date, description, etc.)
-     - Account information merged with transactions
-     - Expected columns: account_id, account_name, institution_domain, amount, posted_date, description, etc.
+### Classifier Strategy
 
-4. **Test with multiple accounts**:
-   - SimpleFIN can return multiple accounts in a single response
-   - Verify that transactions from different accounts are properly labeled
+**1. Clean + Vectorize Transaction Text**
 
-### Troubleshooting
+Use only features that generalize well:
+- Merchant name
+- Description text
+- MCC code (if available)
+- Amount (optional, but helpful)
 
-- **Missing credentials**: Verify `SIMPLEFIN_ACCESS_URL` is set correctly
-- **403 Authentication failed**: The access URL may be invalid, expired, or revoked. Generate a new SimpleFIN token
-- **402 Payment required**: The SimpleFIN service may require payment (unlikely for bridge)
-- **No transactions returned**: Check the date range (currently last 30 days) and verify the account has transactions in that period
-- **Invalid token format**: Ensure the SimpleFIN token is properly Base64-encoded
-- **Network errors**: Check your internet connection and that bridge.simplefin.org is accessible
+Turn text into embeddings using either:
+- **Simple**: TF-IDF
+- **Better**: Sentence embeddings (e.g., miniLM, all-mpnet)
 
+**2. Train a Lightweight Classifier**
+
+**Option A (simple + very effective):**
+- k-NN classifier on embeddings
+- No training cost
+- Very interpretable (closest example transactions)
+- Gives you a "confidence score" = distance to nearest neighbors
+
+**Option B:**
+- Logistic Regression or Linear SVM on TF-IDF
+- Fast
+- High accuracy if text patterns are stable
+- Probabilities give you prediction score
+
+**Option C:**
+- Small neural model finetuned on your embeddings
+- Best for large datasets
+- Typically overkill for personal finance apps
+
+**3. Generate "Predictive Score"**
+
+Use one of:
+- k-NN → inverse distance to nearest neighbors
+- Logistic Regression → predict_proba
+- SVM → convert margin to pseudo-probability (Platt scaling)
+- For embeddings → cosine similarity to closest labeled transaction
+
+Return it as confidence: e.g., 0–1.
+
+**4. Validate Model**
+
+Split your labeled transactions:
+- Train: 80%
+- Test: 20%
+
+Compute:
+- Accuracy
+- Macro F1 (good if classes are imbalanced)
+- Confusion matrix (shows which categories get mixed up)
+- Calibration curve (checks whether your confidence scores are meaningful)
+
+If very imbalanced, use stratified sampling.
+
+**🔥 Quick Recommended Path (simple + effective):**
+1. Compute sentence embeddings for all transactions
+2. Fit a k-NN classifier
+3. Predict new transaction category
+4. Confidence = cosine similarity to the nearest labeled example
+5. Evaluate via accuracy + F1 on a held-out set
