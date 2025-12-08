@@ -8,13 +8,15 @@ src_simplefin as (select * from {{ ref('stg_simplefin') }}),
 
 src_historic_trxns as (select * from {{ ref('stg_historic_trxns') }}),
 
-final as (
-
-    select
+simplefin_full as (
+    
+        select
         transaction_id,
         account_id,
+        null as original_account_name,
         account_name, -- Junior Checking, Student Checking, Blue Cash Preferred, etc.
         null as detailed_account_name,
+        null as owner_name,
         institution_domain,
         institution_name, -- Wintrust, American Express, etc.
         amount,
@@ -31,13 +33,17 @@ final as (
         'simplefin' as source_name
     from src_simplefin
 
-    union all
+)
+
+, historic_trxns_full as (
 
     select
         transaction_id,
         account_id,
+        original_account_name,
         account_name,
         detailed_account_name,
+        owner_name,
         institution_domain,
         institution_name,
         amount,
@@ -53,6 +59,24 @@ final as (
         import_date,
         'historic' as source_name
     from src_historic_trxns
+    
+)
+
+, unioned_tables as (
+
+    select * from simplefin_full
+    union all
+    select * from historic_trxns_full
+
+)
+
+, final as (
+
+    select
+        *
+        -- Not sure that I need this column
+        -- , institution_name || ' - ' || account_name as full_account_name
+    from unioned_tables
 
 )
 

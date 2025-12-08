@@ -2,16 +2,52 @@
     materialized = 'view',
 ) }}
 
-with source as ( select * from {{ ref('historic_transactions') }} ),
+with source as ( select * from {{ ref('historic_transactions') }} )
 
-final as (
+, accounts_mapped as (
+    select
+        *,
+        case 
+            when account_name = 'A_united'       then 'Chase United Explorer Credit Card'
+            when account_name = 'A_freedom'      then 'Chase Freedom Credit Card'
+            when account_name = 'A_mtn1'         then 'Mountain One Checking'
+            when account_name = 'M_freedom'      then 'Chase Freedom Premier Credit Card'
+            when account_name = 'M_wintrust'     then 'Wintrust Bank Checking'
+            when account_name = 'M_sapphire'     then 'Chase Sapphire Credit Card'
+            when account_name = 'M_united'       then 'Chase United Explorer Credit Card'
+            when account_name = 'Joint_amalg'    then 'Amalgamated Bank Checking'
+            when account_name = 'Joint_amex'     then 'American Express Joint Credit Card'
+            when account_name = 'A_PastExpenses' then 'Historical Expenses Allegra'
+            when account_name = 'M_PastExpenses' then 'Historical Expenses Marcello'
+        end as mapped_account_name
+        ,
+        case 
+            when account_name = 'A_united'       then 'Allegra'
+            when account_name = 'A_freedom'      then 'Allegra'
+            when account_name = 'A_mtn1'         then 'Allegra'
+            when account_name = 'M_freedom'      then 'Marcello'
+            when account_name = 'M_wintrust'     then 'Marcello'
+            when account_name = 'M_sapphire'     then 'Marcello'
+            when account_name = 'M_united'       then 'Marcello'
+            when account_name = 'Joint_amalg'    then 'Joint'
+            when account_name = 'Joint_amex'     then 'Joint'
+            when account_name = 'A_PastExpenses' then 'Allegra'
+            when account_name = 'M_PastExpenses' then 'Marcello'
+        end as owner_name
+    from source
+)
+
+
+, final as (
 
     select
     -- TODO: Add transaction_id from historic transactions
         null::text                             as transaction_id,  
         null::text                             as account_id,
-        account_name::text                     as account_name,
+        account_name::text                     as original_account_name,
+        mapped_account_name::text              as account_name,
         type_account_person_account::text      as detailed_account_name,
+        owner_name::text                       as owner_name,
         null::text                             as institution_domain,
         null::text                             as institution_name,
         amount::numeric                        as amount,
@@ -25,7 +61,7 @@ final as (
         master_category::text                  as master_category,
         null::timestamp                        as import_timestamp,
         to_date(input_date, 'MM/DD/YYYY')      as import_date
-    from source
+    from accounts_mapped
 
 )
 
