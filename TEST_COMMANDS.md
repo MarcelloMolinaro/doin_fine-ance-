@@ -2,12 +2,12 @@
 
 ## 1. Test Postgres Connection & Persistence
 
-### Start containers
+### Start containers 
 ```bash
 docker compose up -d
 ```
 
-### Test connection
+### Test Postgres connection
 ```bash
 docker exec -it postgres psql -U dagster -d dagster -c "SELECT version();"
 ```
@@ -41,29 +41,23 @@ print('Data loaded')
 "
 ```
 
-### (One-time) ensure dbt target schema exists
+### Helpful dbt and Postgres commands
 ```bash
-docker exec -it postgres psql -U dagster -d dagster -c "CREATE SCHEMA IF NOT EXISTS analytics;"
-```
-
-### Test dbt connection
-```bash
-docker exec -it dagster dbt debug --project-dir /opt/dbt
-```
-
-### Run dbt models
-```bash
-docker exec -it dagster dbt run --project-dir /opt/dbt
-```
-
-### Verify results
-```bash
-docker exec -it postgres psql -U dagster -d dagster -c "SELECT * FROM analytics.summary;"
+docker exec -it postgres psql -U dagster -d dagster -c "CREATE SCHEMA IF NOT EXISTS analytics;"      # (one-time) ensure dbt target schema exists
+docker exec -it dagster dbt debug --project-dir /opt/dbt                                             # test dbt connection
+docker exec -it dagster dbt run --project-dir /opt/dbt                                               # run dbt models
+docker exec -it postgres psql -U dagster -d dagster -c "SELECT * FROM analytics.<your_model_name>;"  # verify results
 ```
 
 ---
 
-## 3. Run via Dagster
+## 3. Testing the simplefin_api.py script
+
+```bash
+docker compose exec dagster python /opt/dagster/app/extractors/simplefin_api.py
+```
+
+## 4. Run via Dagster
 
 ### Check Dagster is running
 ```bash
@@ -76,10 +70,4 @@ Open: http://localhost:3000
 ### Or trigger via CLI (if needed)
 ```bash
 docker exec -it dagster dagster asset materialize -m repo -a source1 source2 source3 load_to_postgres run_dbt
-```
-
-## Test the simplefin_api.py script
-
-```bash
-docker compose exec dagster python /opt/dagster/app/extractors/simplefin_api.py
 ```
