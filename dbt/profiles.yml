@@ -2,11 +2,11 @@ dagster_dbt:
   outputs:
     dev:
       type: postgres
-      host: postgres
-      user: dagster
-      password: dagster
-      port: 5432
-      dbname: dagster
-      schema: analytics
+      host: "{{ env_var('DBT_POSTGRES_HOST', 'postgres') }}"
+      user: "{{ env_var('DBT_POSTGRES_USER', 'dagster') }}"
+      password: "{{ env_var('DBT_POSTGRES_PASSWORD', 'dagster') }}"
+      port: "{{ env_var('DBT_POSTGRES_PORT', '5432') | as_number }}"
+      dbname: "{{ env_var('DBT_POSTGRES_DBNAME', 'dagster') }}"
+      schema: "{{ env_var('DBT_POSTGRES_SCHEMA', 'analytics') }}"
       threads: 2
   target: dev
