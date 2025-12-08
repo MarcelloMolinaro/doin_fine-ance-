@@ -1,0 +1,246 @@
+"""
+Transaction classifier training asset.
+
+Trains a machine learning model to categorize financial transactions based on
+merchant name, description, amount, and other features.
+"""
+
+from dagster import asset, AssetExecutionContext
+import pandas as pd
+from sqlalchemy import create_engine, text
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.compose import ColumnTransformer
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    confusion_matrix,
+    classification_report
+)
+from sklearn.calibration import calibration_curve
+import joblib
+import os
+from datetime import datetime
+import json
+from pathlib import Path
+from scipy.sparse import hstack, csr_matrix
+
+
+def create_model_storage_path():
+    """Create directory for storing model artifacts."""
+    storage_path = Path("/opt/dagster/app/models")
+    storage_path.mkdir(exist_ok=True)
+    return storage_path
+
+
+@asset(
+    description="Train a classifier model to categorize transactions based on historical data"
+)
+def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
+    """
+    Train a transaction classifier model.
+    
+    Reads labeled transactions from dbt (excluding uncategorized ones),
+    performs feature engineering, trains a classifier, evaluates it,
+    and saves the model artifact.
+    """
+    engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
+    
+    # Read only categorized transactions for training, filter out rows with null amounts
+    query_categorized = text("SELECT * FROM analytics.fct_trxns_categorized")
+    df_train = pd.read_sql(query_categorized, engine)
+    df_train = df_train[df_train['amount'].notna()].copy()
+
+    # Filter Lodging: only keep if description contains specific keywords
+    lodging_mask = (
+        df_train['master_category'] == 'Lodging'
+    ) & (
+        ~df_train['description'].fillna('').str.lower().str.contains(
+            'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
+        )
+    )
+
+    # Exclude Lodging transactions that don't match keywords
+    df_train = df_train[~lodging_mask].copy()
+
+    context.log.info(f"Filtered out {lodging_mask.sum()} Lodging transactions without keywords")
+    context.log.info(f"Training transactions: {len(df_train)}")
+    
+    if len(df_train) < 100:
+        raise ValueError(f"Not enough training data: {len(df_train)} transactions. Need at least 100.")
+    
+    # Feature engineering
+    # Combine description and account_name for text features
+    df_train['combined_text'] = (
+        df_train['description'].fillna('').astype(str) + ' ' +
+        df_train['account_name'].fillna('').astype(str) + ' ' +
+        df_train.get('institution_name', '').fillna('').astype(str)
+    )
+    
+    # Prepare features and target
+    X_text = df_train['combined_text'].values
+    X_amount = df_train[['amount']].values
+    y = df_train['master_category'].values
+    
+    context.log.info(f"Number of categories: {len(np.unique(y))}")
+    context.log.info(f"Category distribution:\n{df_train['master_category'].value_counts()}")
+    
+    # Split data: 80% train, 20% test (stratified)
+    X_train_text, X_test_text, X_train_amount, X_test_amount, y_train, y_test = train_test_split(
+        X_text, X_amount, y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y  # Stratified to handle imbalanced classes
+    )
+    
+    context.log.info(f"Train set size: {len(X_train_text)}")
+    context.log.info(f"Test set size: {len(X_test_text)}")
+    
+    # Feature engineering: TF-IDF for text, StandardScaler for amount
+    text_vectorizer = TfidfVectorizer(
+        max_features=500,
+        ngram_range=(1, 2),  # Include unigrams and bigrams
+        min_df=2,  # Ignore terms that appear in fewer than 2 documents
+        max_df=0.95,  # Ignore terms that appear in more than 95% of documents
+        stop_words='english'
+    )
+    
+    amount_scaler = StandardScaler()
+    
+    # Transform features
+    X_train_text_vec = text_vectorizer.fit_transform(X_train_text)
+    X_test_text_vec = text_vectorizer.transform(X_test_text)
+    
+    X_train_amount_scaled = amount_scaler.fit_transform(X_train_amount)
+    X_test_amount_scaled = amount_scaler.transform(X_test_amount)
+    
+    # Combine features: concatenate text and amount features
+    # Convert dense amount features to sparse format for hstack
+    X_train_amount_sparse = csr_matrix(X_train_amount_scaled)
+    X_test_amount_sparse = csr_matrix(X_test_amount_scaled)
+    
+    X_train = hstack([X_train_text_vec, X_train_amount_sparse])
+    X_test = hstack([X_test_text_vec, X_test_amount_sparse])
+    
+    # Train classifier
+    # Using RandomForest for interpretability and handling of mixed features
+    classifier = RandomForestClassifier(
+        n_estimators=100,
+        max_depth=20,
+        min_samples_split=5,
+        min_samples_leaf=2,
+        random_state=42,
+        n_jobs=-1,
+        class_weight='balanced'  # Handle imbalanced classes
+    )
+    
+    context.log.info("Training classifier...")
+    classifier.fit(X_train, y_train)
+    
+    # Evaluate model
+    y_pred = classifier.predict(X_test)
+    y_pred_proba = classifier.predict_proba(X_test)
+    
+    accuracy = accuracy_score(y_test, y_pred)
+    macro_f1 = f1_score(y_test, y_pred, average='macro')
+    weighted_f1 = f1_score(y_test, y_pred, average='weighted')
+    
+    context.log.info(f"Test Accuracy: {accuracy:.4f}")
+    context.log.info(f"Test Macro F1: {macro_f1:.4f}")
+    context.log.info(f"Test Weighted F1: {weighted_f1:.4f}")
+    
+    # Confusion Matrix
+    cm = confusion_matrix(y_test, y_pred)
+    context.log.info(f"Confusion Matrix:\n{cm}")
+    
+    # Classification Report
+    class_report = classification_report(y_test, y_pred)
+    context.log.info(f"Classification Report:\n{class_report}")
+    
+    # Calibration Curve (for top categories)
+    # Get top 5 categories by frequency
+    top_categories = df_train['master_category'].value_counts().head(5).index.tolist()
+    category_idx_map = {cat: idx for idx, cat in enumerate(classifier.classes_)}
+    
+    calibration_metrics = {}
+    for category in top_categories:
+        if category in category_idx_map:
+            cat_idx = category_idx_map[category]
+            y_true_binary = (y_test == category).astype(int)
+            y_proba = y_pred_proba[:, cat_idx]
+            
+            if len(np.unique(y_true_binary)) > 1:  # Only if both classes present
+                prob_true, prob_pred = calibration_curve(
+                    y_true_binary, y_proba, n_bins=10, strategy='uniform'
+                )
+                calibration_metrics[category] = {
+                    'prob_true': prob_true.tolist(),
+                    'prob_pred': prob_pred.tolist()
+                }
+    
+    # Prepare metrics summary
+    metrics = {
+        'model_version': datetime.now().isoformat(),
+        'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'n_train_samples': len(X_train_text),
+        'n_test_samples': len(X_test_text),
+        'n_features': X_train.shape[1],
+        'n_classes': len(np.unique(y)),
+        'accuracy': float(accuracy),
+        'macro_f1': float(macro_f1),
+        'weighted_f1': float(weighted_f1),
+        'categories': classifier.classes_.tolist(),
+        'calibration_metrics': calibration_metrics
+    }
+    
+    # Save model artifact
+    model_storage = create_model_storage_path()
+    model_version = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    # Save full pipeline (vectorizer, scaler, classifier)
+    pipeline = {
+        'text_vectorizer': text_vectorizer,
+        'amount_scaler': amount_scaler,
+        'classifier': classifier,
+        'feature_names': ['text_tfidf', 'amount_scaled']
+    }
+    
+    model_path = model_storage / f"transaction_classifier_{model_version}.pkl"
+    joblib.dump(pipeline, model_path)
+    
+    # Save metrics
+    metrics_path = model_storage / f"metrics_{model_version}.json"
+    with open(metrics_path, 'w') as f:
+        json.dump(metrics, f, indent=2)
+    
+    # Also save a "latest" symlink/reference
+    latest_model_path = model_storage / "transaction_classifier_latest.pkl"
+    latest_metrics_path = model_storage / "metrics_latest.json"
+    
+    if latest_model_path.exists():
+        latest_model_path.unlink()
+    if latest_metrics_path.exists():
+        latest_metrics_path.unlink()
+    
+    # Copy to latest (since symlinks might not work in containers, just copy)
+    import shutil
+    shutil.copy(model_path, latest_model_path)
+    shutil.copy(metrics_path, latest_metrics_path)
+    
+    context.log.info(f"Model saved to: {model_path}")
+    context.log.info(f"Metrics saved to: {metrics_path}")
+    
+    engine.dispose()
+    
+    return {
+        'model_path': str(model_path),
+        'metrics': metrics,
+        'n_training_samples': len(X_train_text),
+        'n_test_samples': len(X_test_text),
+        'accuracy': float(accuracy),
+        'macro_f1': float(macro_f1)
+    }

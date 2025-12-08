@@ -8,7 +8,7 @@ RUN apt-get update && \
     apt-get install -y git && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Dagster, Dagit, dbt, and dependencies
+# Install Dagster, Dagit, dbt, and ML dependencies
 RUN pip install --no-cache-dir \
     dagster \
     dagster-postgres \
@@ -17,7 +17,11 @@ RUN pip install --no-cache-dir \
     SQLAlchemy \
     requests \
     psycopg2-binary \
-    dbt-postgres
+    dbt-postgres \
+    scikit-learn \
+    joblib \
+    numpy \
+    scipy
 # Copy the Dagster project files
 COPY . .
 
