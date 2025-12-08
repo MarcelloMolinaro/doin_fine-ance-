@@ -1,39 +1,55 @@
 # TODOs
 
-[x] Build Python models to pull data from SimpleFIN
-   - Resolve all to-do's in the simplefin_api.py doc
-- Enable dbt <> dagster connection so I don't need to define each source? I haven't built any of this out yet
-[ ] Add a Databricks source integration and test end-to-end
-[ ] Stop truncating source tables and start inserting/appending (especially finance data!)
-   - create a qualify statement that only takes the most recent data and handles dupes!
-[ ] Add remaining sources (Chase Marcello, Chase Allegra, Mntn 1)
+## Short Term
+- [x] Build classifier to categorize new transactions
+  - [ ] Add recommended Features to Add
+  - [ ] Test running the prediction.py!
+- [x] Build Python models to pull data from SimpleFIN
+  - [ ] Resolve all to-do's in the simplefin_api.py doc
+- [ ] Enable dbt <> dagster connection so I don't need to define each source? I haven't built any of this out yet
+- [ ] Add a Databricks source integration and test end-to-end
+- [ ] Stop truncating source tables and start inserting/appending (especially finance data!)
+  - [ ] create a qualify statement that only takes the most recent data and handles dupes!
+- [ ] Add remaining sources (Chase Marcello, Chase Allegra, Mntn 1)
 
-- Delete committed artifacts/logs and tighten `.gitignore`
-- [SKipping for now] ~Create a config files that manages all secrets, passwords, etc.~
-- Move profiles OUT of dbt or stop tracking it, or both
+## Long Term
+- [ ] What's up with the .user.yml file? untrack that?
+- [ ] learn about ML classifiers? Why are we using random forest here? What is Vecorized text?
+  - [ ] Check out Ian's documents to see if they have good explaination
+
+## Done  Won't Do!
+- [x] Delete committed artifacts/logs and tighten `.gitignore`
+- [x] [SKipping for now] ~Create a config files that manages all secrets, passwords, etc.~
+- [x] Move profiles OUT of dbt or stop tracking it, or both
+
 
 # Resources
 - SimpleFin Dev Tools: https://www.simplefin.org/protocol.html
 - https://beta-bridge.simplefin.org/my-account
 
-### Testing
-You can test the extractor directly in the Dagster container without running the full Dagster UI:
-
-**Option 1: Run directly in the container**
-```bash
-# Make sure your container is running
-docker-compose up -d
-
-# Run the extractor
-docker-compose exec dagster python /opt/dagster/app/extractors/simplefin_api.py
-```
-
-Next steps - Categories!
+# Next steps - Categories!
 
 ## ML Transaction Categorization Pipeline
 
+### Step 3.1 Recommended Features to Add
+A. Transaction Date Features (recommended)
+  Day of week (0-6)
+  Month (1-12)
+  Day of month (1-31)
+  Why: Some categories are time-based (e.g., Rent on the 1st, utilities monthly, groceries on weekends).
+B. Amount Derived Features (recommended)
+  is_negative (boolean)
+  amount_abs (absolute value)
+  Why: Distinguishes income vs expenses.
+C. Source Category (if available)
+  Include source_category in text features if it exists.
+  Why: Historic data already has category hints.
+  Implementation Location:
+  Add after line 69 (after combined_text) and before line 71 (before preparing X_text). Then scale/encode these features and concatenate them.
+
+
 ### Step 3: Train Model on Historical Data
-- [ ] Create Dagster asset for model training
+- [x] Create Dagster asset for model training
   - Read unified transactions from dbt (historical + simplefin combined)
   - Split data: 80% train, 20% test (stratified if imbalanced)
   - Feature engineering:

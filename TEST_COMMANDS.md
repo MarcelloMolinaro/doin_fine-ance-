@@ -69,5 +69,24 @@ Open: http://localhost:3000
 
 ### Or trigger via CLI (if needed)
 ```bash
-docker exec -it dagster dagster asset materialize -m repo -a source1 source2 source3 load_to_postgres run_dbt
+# Materialize specific assets (use --select with comma-separated asset names)
+docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select source1,source2,source3,load_to_postgres,run_dbt
+
+# Or use the workspace (if configured)
+docker exec dagster dagster-webserver -h 0.0.0.0 -p 3000 -w /opt/dagster/app/workspace.yaml
+# Then use the UI at http://localhost:3000 to materialize assets
 ```
+
+### Train and predict with classifier
+```bash
+# Train the classifier (requires run_dbt to complete first)
+docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select train_transaction_classifier
+
+# Predict categories for uncategorized transactions
+docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select predict_transaction_categories
+
+# Or run the full pipeline including classifier
+docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select simplefin_financial_data,load_to_postgres,run_dbt,train_transaction_classifier,predict_transaction_categories
+```
+
+**Note:** The easiest way to materialize assets is via the Dagster UI at http://localhost:3000. Navigate to Assets and click "Materialize" on the asset you want to run.
