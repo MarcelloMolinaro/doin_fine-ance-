@@ -40,3 +40,6 @@ dbt/.user.yml
 .env
 .env.local
 docker-compose.override.yml
+
+# dbt seeds - actual data files (example files are checked in)
+dbt/seeds/historic_transactions.csv

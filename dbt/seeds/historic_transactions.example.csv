@@ -1,0 +1,9 @@
+transaction_date,description,amount,account_name,source_category,additional_account_info,master_category,input_date
+6/1/2024,tip at Lenny's,-8,cash,Alcohol & Bars,,Bars & Restaurants,1/1/2025
+6/1/2024,thanks for cake Hortense!,25.00,Venmo,,cash,Income,2/1/2025
+6/1/2024,rent,-1000.00,WellsFargoSucks,,bank,Rent,2/1/2025
+6/2/2024,Safeway,-9.77,WellsFargoSucks,food,,Groceries,1/1/2025
+6/10/2024,restaurant dinner,-28.90,Chase,Restaurants,,Dining out,1/1/2025
+6/15/2024,gas station,-35.00,Chase,Gas & Fuel,,Auto & Transport,1/1/2025
+6/20/2024,paycheck deposit,2500.00,Chase,,bank,Income,1/1/2025
+6/25/2024,utility bill,-120.50,Chase,Utilities,,Bills & Utilities,1/1/2025
