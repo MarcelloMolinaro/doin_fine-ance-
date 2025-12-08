@@ -4,7 +4,7 @@
 
 with 
 
-src_simplefin as (select * from {{ ref('int_transactions') }}),
+src_simplefin as (select * from {{ ref('int_trxns') }}),
 
 final as ( select * from src_simplefin )
 

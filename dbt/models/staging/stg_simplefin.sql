@@ -27,15 +27,15 @@ with source as (
         account_name,
         institution_domain,
         institution_name,
-        amount::numeric as amount,
-        posted,
-        posted_date::date as posted_date,
-        transacted_at,
-        transacted_date::date as transacted_date,
+        amount::numeric             as amount,
+        to_timestamp(posted)        as posted,
+        posted_date::date           as posted_date,
+        to_timestamp(transacted_at) as transacted_at,
+        transacted_date::date       as transacted_date,
         description,
         pending,
-        import_timestamp,
-        import_date,
+        import_timestamp::timestamp as import_timestamp,
+        import_date::timestamp      as import_date,
         row_number() over (
             partition by transaction_id
             order by import_timestamp desc

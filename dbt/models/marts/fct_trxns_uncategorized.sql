@@ -2,11 +2,13 @@
     materialized = 'table'
 ) }}
 
-with src_transactions as (select * from {{ ref('fct_transactions') }}),
+with src as (select * from {{ ref('int_trxns') }}),
 
 final as (
-    select * from src_transactions
+    
+    select * from src
     where master_category is null
+
 )
 
 select * from final
