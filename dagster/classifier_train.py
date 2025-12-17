@@ -54,7 +54,16 @@ def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
     query_categorized = text("SELECT * FROM analytics.fct_trxns_categorized")
     df_train = pd.read_sql(query_categorized, engine)
     df_train = df_train[df_train['amount'].notna()].copy()
-
+    
+    # Filter out transactions before 2022
+    df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
+    initial_count = len(df_train)
+    df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
+    filtered_old = initial_count - len(df_train)
+    
+    if filtered_old > 0:
+        context.log.info(f"Filtered out {filtered_old} transactions before 2022")
+    
     # Filter Lodging: only keep if description contains specific keywords
     lodging_mask = (
         df_train['master_category'] == 'Lodging'
@@ -81,17 +90,61 @@ def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
         df_train.get('institution_name', '').fillna('').astype(str)
     )
     
+    # Transaction date features (transacted_date already parsed above)
+    df_train['day_of_week'] = df_train['transacted_date'].dt.dayofweek  # 0=Monday, 6=Sunday
+    df_train['month'] = df_train['transacted_date'].dt.month  # 1-12
+    df_train['day_of_month'] = df_train['transacted_date'].dt.day  # 1-31
+    
+    # Amount derived features
+    df_train['is_negative'] = (df_train['amount'] < 0).astype(int)
+    df_train['amount_abs'] = df_train['amount'].abs()
+    
+    # Transaction pattern features - amount buckets
+    df_train['amount_bucket'] = pd.cut(
+        df_train['amount_abs'],
+        bins=[0, 10, 50, 100, 500, float('inf')],
+        labels=[0, 1, 2, 3, 4]  # micro, small, medium, large, huge
+    )
+    df_train['amount_bucket'] = df_train['amount_bucket'].fillna(2).astype(int)  # Fill NaN with medium bucket
+    
+    # Keyword features for high-precision categories
+    desc_lower = df_train['description'].fillna('').str.lower()
+    df_train['has_hotel_keyword'] = desc_lower.str.contains(
+        'hotel|airbnb|inn|resort|motel|hipcamp|booking', case=False, na=False
+    ).astype(int)
+    df_train['has_gas_keyword'] = desc_lower.str.contains(
+        'shell|chevron|exxon|bp|mobil|gas|fuel|76|arco', case=False, na=False
+    ).astype(int)
+    df_train['has_grocery_keyword'] = desc_lower.str.contains(
+        'safeway|costco|trader|whole foods|kroger|grocery|market|albertsons|bowlberkeley', case=False, na=False
+    ).astype(int)
+    df_train['has_restaurant_keyword'] = desc_lower.str.contains(
+        'restaurant|cafe|coffee|starbucks|mcdonald|burger|pizza|chipotle|dining', case=False, na=False
+    ).astype(int)
+    df_train['has_transport_keyword'] = desc_lower.str.contains(
+        'uber|lyft|taxi|bart|metro|transit|parking|toll', case=False, na=False
+    ).astype(int)
+    df_train['has_shop_keyword'] = desc_lower.str.contains(
+        'amazon|target|walmart|ebay|etsy|shop|store', case=False, na=False
+    ).astype(int)
+    
     # Prepare features and target
     X_text = df_train['combined_text'].values
-    X_amount = df_train[['amount']].values
+    X_numerical = df_train[[
+        'amount', 'amount_abs', 'is_negative', 
+        'day_of_week', 'month', 'day_of_month',
+        'amount_bucket',
+        'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
+        'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword'
+    ]].values
     y = df_train['master_category'].values
     
     context.log.info(f"Number of categories: {len(np.unique(y))}")
     context.log.info(f"Category distribution:\n{df_train['master_category'].value_counts()}")
     
     # Split data: 80% train, 20% test (stratified)
-    X_train_text, X_test_text, X_train_amount, X_test_amount, y_train, y_test = train_test_split(
-        X_text, X_amount, y,
+    X_train_text, X_test_text, X_train_numerical, X_test_numerical, y_train, y_test = train_test_split(
+        X_text, X_numerical, y,
         test_size=0.2,
         random_state=42,
         stratify=y  # Stratified to handle imbalanced classes
@@ -100,7 +153,7 @@ def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
     context.log.info(f"Train set size: {len(X_train_text)}")
     context.log.info(f"Test set size: {len(X_test_text)}")
     
-    # Feature engineering: TF-IDF for text, StandardScaler for amount
+    # Feature engineering: TF-IDF for text, StandardScaler for numerical features
     text_vectorizer = TfidfVectorizer(
         max_features=500,
         ngram_range=(1, 2),  # Include unigrams and bigrams
@@ -109,33 +162,34 @@ def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
         stop_words='english'
     )
     
-    amount_scaler = StandardScaler()
+    numerical_scaler = StandardScaler()
     
     # Transform features
     X_train_text_vec = text_vectorizer.fit_transform(X_train_text)
     X_test_text_vec = text_vectorizer.transform(X_test_text)
     
-    X_train_amount_scaled = amount_scaler.fit_transform(X_train_amount)
-    X_test_amount_scaled = amount_scaler.transform(X_test_amount)
+    X_train_numerical_scaled = numerical_scaler.fit_transform(X_train_numerical)
+    X_test_numerical_scaled = numerical_scaler.transform(X_test_numerical)
     
-    # Combine features: concatenate text and amount features
-    # Convert dense amount features to sparse format for hstack
-    X_train_amount_sparse = csr_matrix(X_train_amount_scaled)
-    X_test_amount_sparse = csr_matrix(X_test_amount_scaled)
+    # Combine features: concatenate text and numerical features
+    # Convert dense numerical features to sparse format for hstack
+    X_train_numerical_sparse = csr_matrix(X_train_numerical_scaled)
+    X_test_numerical_sparse = csr_matrix(X_test_numerical_scaled)
     
-    X_train = hstack([X_train_text_vec, X_train_amount_sparse])
-    X_test = hstack([X_test_text_vec, X_test_amount_sparse])
+    X_train = hstack([X_train_text_vec, X_train_numerical_sparse])
+    X_test = hstack([X_test_text_vec, X_test_numerical_sparse])
     
-    # Train classifier
+    # Train classifier - optimized for precision
     # Using RandomForest for interpretability and handling of mixed features
     classifier = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=20,
-        min_samples_split=5,
-        min_samples_leaf=2,
+        n_estimators=200,              # More trees for better stability
+        max_depth=15,                  # Shallower for more conservative predictions
+        min_samples_split=10,          # Higher threshold for splits
+        min_samples_leaf=5,            # Require more evidence per leaf
+        max_features='sqrt',           # Reduce overfitting
         random_state=42,
         n_jobs=-1,
-        class_weight='balanced'  # Handle imbalanced classes
+        class_weight=None              # Removed balanced to favor precision over recall
     )
     
     context.log.info("Training classifier...")
@@ -204,9 +258,14 @@ def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
     # Save full pipeline (vectorizer, scaler, classifier)
     pipeline = {
         'text_vectorizer': text_vectorizer,
-        'amount_scaler': amount_scaler,
+        'numerical_scaler': numerical_scaler,
         'classifier': classifier,
-        'feature_names': ['text_tfidf', 'amount_scaled']
+        'feature_names': [
+            'text_tfidf', 'amount', 'amount_abs', 'is_negative', 
+            'day_of_week', 'month', 'day_of_month', 'amount_bucket',
+            'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
+            'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword'
+        ]
     }
     
     model_path = model_storage / f"transaction_classifier_{model_version}.pkl"
