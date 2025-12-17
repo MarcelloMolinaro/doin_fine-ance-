@@ -85,103 +85,147 @@ def simplefin_financial_data(context):
     
     try:
         # Get account and transaction data from SimpleFIN
+        # SimpleFIN API has a 60-day limit per request, so we need to paginate
         # TODO: Add configurable date range (start-date, end-date query parameters)
         # TODO: Add support for pending transactions (pending=1)
         # TODO: Add support for balances-only mode (balances-only=1)
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=365)  # Last 365 days
+        start_date = end_date - timedelta(days=200)  # Last 200 days, no accounts support more
         
+        # SimpleFIN API limit: 60 days per request
+        MAX_DAYS_PER_REQUEST = 60
         accounts_url = f"{base_url}/accounts"
-        params = {
-            'start-date': int(start_date.timestamp()),
-            'end-date': int(end_date.timestamp())
-        }
         
-        # Make authenticated request with SSL/TLS certificate verification
-        response = requests.get(
-            accounts_url,
-            params=params,
-            auth=(username, password),
-            timeout=30,
-            verify=True  # Explicitly verify SSL/TLS certificates
-        )
+        # Calculate number of requests needed
+        total_days = (end_date - start_date).days
+        num_requests = (total_days + MAX_DAYS_PER_REQUEST - 1) // MAX_DAYS_PER_REQUEST  # Ceiling division
+        context.log.info(f"Fetching {total_days} days of data using {num_requests} requests (max {MAX_DAYS_PER_REQUEST} days per request)")
         
-        # Handle authentication errors
-        if response.status_code == 403:
-            raise ValueError(
-                "Authentication failed (403). The access URL may be invalid, expired, "
-                "or access may have been revoked. Check your SimpleFIN token."
-            )
-        
-        # Handle payment required
-        if response.status_code == 402:
-            raise ValueError(
-                "Payment required (402). The SimpleFIN service may require payment."
-            )
-        
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        # Check for errors in response - log as warnings but don't fail
-        # This allows other institutions to process even if one has issues
-        errors = data.get('errors', [])
-        if errors:
-            # Sanitize error messages to remove potentially sensitive information
-            sanitized_errors = []
-            for error in errors:
-                # Remove any URLs, tokens, or credentials that might appear in error messages
-                sanitized = error
-                # Remove URLs
-                sanitized = re.sub(r'https?://[^\s]+', '[URL_REMOVED]', sanitized)
-                # Remove potential tokens (long alphanumeric strings)
-                sanitized = re.sub(r'[A-Za-z0-9]{32,}', '[TOKEN_REMOVED]', sanitized)
-                sanitized_errors.append(sanitized)
-            error_msg = "; ".join(sanitized_errors)
-            context.log.warning(f"SimpleFIN API returned errors (continuing with available data): {error_msg}")
-        
-        accounts = data.get('accounts', [])
-        
-        # Extract transaction data
+        # Track transactions by ID to deduplicate across requests
+        seen_transaction_ids = set()
         successful_institutions = set()
         failed_institutions = set()
         
-        for account in accounts:
-            org = account.get('org', {})
-            institution_name = org.get('name', 'Unknown')
+        # Make requests in 60-day chunks
+        current_start = start_date
+        request_num = 0
+        
+        while current_start < end_date:
+            request_num += 1
+            # Calculate end date for this chunk (either 60 days later, or end_date if smaller)
+            current_end = min(current_start + timedelta(days=MAX_DAYS_PER_REQUEST), end_date)
+            
+            context.log.info(f"Request {request_num}/{num_requests}: Fetching data from {current_start.date()} to {current_end.date()}")
+            
+            params = {
+                'start-date': int(current_start.timestamp()),
+                'end-date': int(current_end.timestamp())
+            }
             
             try:
+                # Make authenticated request with SSL/TLS certificate verification
+                response = requests.get(
+                    accounts_url,
+                    params=params,
+                    auth=(username, password),
+                    timeout=60,  # Increased timeout for larger date ranges
+                    verify=True  # Explicitly verify SSL/TLS certificates
+                )
+                
+                # Handle authentication errors
+                if response.status_code == 403:
+                    raise ValueError(
+                        "Authentication failed (403). The access URL may be invalid, expired, "
+                        "or access may have been revoked. Check your SimpleFIN token."
+                    )
+                
+                # Handle payment required
+                if response.status_code == 402:
+                    raise ValueError(
+                        "Payment required (402). The SimpleFIN service may require payment."
+                    )
+                
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # Check for errors in response - log as warnings but don't fail
+                # This allows other institutions to process even if one has issues
+                errors = data.get('errors', [])
+                if errors:
+                    # Sanitize error messages to remove potentially sensitive information
+                    sanitized_errors = []
+                    for error in errors:
+                        # Remove any URLs, tokens, or credentials that might appear in error messages
+                        sanitized = error
+                        # Remove URLs
+                        sanitized = re.sub(r'https?://[^\s]+', '[URL_REMOVED]', sanitized)
+                        # Remove potential tokens (long alphanumeric strings)
+                        sanitized = re.sub(r'[A-Za-z0-9]{32,}', '[TOKEN_REMOVED]', sanitized)
+                        sanitized_errors.append(sanitized)
+                    error_msg = "; ".join(sanitized_errors)
+                    context.log.warning(f"SimpleFIN API returned errors for date range {current_start.date()} to {current_end.date()} (continuing with available data): {error_msg}")
+                
+                accounts = data.get('accounts', [])
+                
                 # Extract transaction data
-                transactions = account.get('transactions', [])
-                for transaction in transactions:
-                    transaction_data = {
-                        'transaction_id': transaction.get('id'),
-                        'account_id': account.get('id'),
-                        'account_name': account.get('name'),
-                        'institution_domain': org.get('domain'),
-                        'institution_name': institution_name,
-                        'amount': transaction.get('amount'),
-                        'posted': transaction.get('posted'),
-                        'posted_date': datetime.fromtimestamp(transaction.get('posted', 0)).isoformat() if transaction.get('posted') else None,
-                        'transacted_at': transaction.get('transacted_at'),
-                        'transacted_date': datetime.fromtimestamp(transaction.get('transacted_at', 0)).isoformat() if transaction.get('transacted_at') else None,
-                        'description': transaction.get('description'),
-                        'pending': transaction.get('pending', False),
-                        'import_timestamp': import_timestamp.isoformat(),
-                        'import_date': import_date.isoformat()
-                        ,'extra': transaction.get('extra')
-                    }
-                    all_transactions_data.append(transaction_data)
+                for account in accounts:
+                    org = account.get('org', {})
+                    institution_name = org.get('name', 'Unknown')
+                    
+                    try:
+                        # Extract transaction data
+                        transactions = account.get('transactions', [])
+                        chunk_transaction_count = 0
+                        
+                        for transaction in transactions:
+                            transaction_id = transaction.get('id')
+                            
+                            # Deduplicate: skip if we've already seen this transaction
+                            if transaction_id in seen_transaction_ids:
+                                continue
+                            seen_transaction_ids.add(transaction_id)
+                            
+                            transaction_data = {
+                                'transaction_id': transaction_id,
+                                'account_id': account.get('id'),
+                                'account_name': account.get('name'),
+                                'institution_domain': org.get('domain'),
+                                'institution_name': institution_name,
+                                'amount': transaction.get('amount'),
+                                'posted': transaction.get('posted'),
+                                'posted_date': datetime.fromtimestamp(transaction.get('posted', 0)).isoformat() if transaction.get('posted') else None,
+                                'transacted_at': transaction.get('transacted_at'),
+                                'transacted_date': datetime.fromtimestamp(transaction.get('transacted_at', 0)).isoformat() if transaction.get('transacted_at') else None,
+                                'description': transaction.get('description'),
+                                'pending': transaction.get('pending', False),
+                                'import_timestamp': import_timestamp.isoformat(),
+                                'import_date': import_date.isoformat()
+                                ,'extra': transaction.get('extra')
+                            }
+                            all_transactions_data.append(transaction_data)
+                            chunk_transaction_count += 1
+                        
+                        if chunk_transaction_count > 0:
+                            successful_institutions.add(institution_name)
+                            context.log.info(f"  Added {chunk_transaction_count} transactions from {institution_name} (date range: {current_start.date()} to {current_end.date()})")
+                        
+                    except Exception as e:
+                        failed_institutions.add(institution_name)
+                        context.log.warning(f"Failed to process account '{account.get('name')}' from {institution_name} for date range {current_start.date()} to {current_end.date()}: {str(e)}")
+                        continue
                 
-                successful_institutions.add(institution_name)
-                context.log.info(f"Successfully processed {len(transactions)} transactions from {institution_name}")
-                
+            except requests.exceptions.RequestException as e:
+                context.log.warning(f"Request failed for date range {current_start.date()} to {current_end.date()}: {str(e)}. Continuing with next date range...")
+                # Continue to next date range instead of failing entirely
             except Exception as e:
-                failed_institutions.add(institution_name)
-                context.log.warning(f"Failed to process account '{account.get('name')}' from {institution_name}: {str(e)}")
-                continue
+                context.log.warning(f"Unexpected error for date range {current_start.date()} to {current_end.date()}: {str(e)}. Continuing with next date range...")
+            
+            # Move to next date range
+            current_start = current_end
         
         # Log summary
+        context.log.info(f"Completed fetching data. Total transactions collected: {len(all_transactions_data)}")
         if successful_institutions:
             context.log.info(f"Successfully processed institutions: {', '.join(sorted(successful_institutions))}")
         if failed_institutions:

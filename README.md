@@ -91,3 +91,32 @@ The SimpleFIN extractor (`dagster/extractors/simplefin_api.py`) connects to bank
 The Access URL format is: `https://username:password@bridge.simplefin.org/simplefin`
 
 **Note**: SimpleFIN Bridge is free and doesn't require registration. For more details, see: https://www.simplefin.org/protocol.html
+
+### Institution-Specific Data Availability
+
+Different institutions provide different amounts of historical transaction data. The SimpleFIN API allows up to 60 days per request, but the actual available history varies by institution:
+
+| Institution | Account Type | Earliest Date Available |
+|------------|--------------|------------------------|-------|
+| **Amalgamated Bank** | ONLINE CHECKING-3633 | 60 days |
+| **American Express** | Blue Cash Preferred® | 90 days |
+| **Chase Bank** | Chase Freedom Unlimited | 90 days |
+| **Wintrust Community Banks** | Junior Savers Savings | <145 days |
+
+**Important Notes:**
+- The SimpleFIN API enforces a **60-day maximum per request**, so historical data is fetched via pagination
+
+**Query to check current data ranges:**
+```sql
+SELECT 
+    account_name, 
+    institution_name, 
+    MIN(transacted_date) as earliest_date, 
+    MAX(transacted_date) as latest_date, 
+    COUNT(*) as transaction_count,
+    (MAX(transacted_date) - MIN(transacted_date)) as date_range_days
+FROM public.simplefin 
+WHERE transacted_date IS NOT NULL 
+GROUP BY account_name, institution_name 
+ORDER BY institution_name, account_name;
+```
