@@ -10,7 +10,7 @@ from typing import Optional
 
 
 @asset
-def simplefin_financial_data():
+def simplefin_financial_data(context):
     """
     Extracts financial transaction data from SimpleFIN Bridge.
     
@@ -123,7 +123,8 @@ def simplefin_financial_data():
         
         data = response.json()
         
-        # Check for errors in response
+        # Check for errors in response - log as warnings but don't fail
+        # This allows other institutions to process even if one has issues
         errors = data.get('errors', [])
         if errors:
             # Sanitize error messages to remove potentially sensitive information
@@ -137,35 +138,54 @@ def simplefin_financial_data():
                 sanitized = re.sub(r'[A-Za-z0-9]{32,}', '[TOKEN_REMOVED]', sanitized)
                 sanitized_errors.append(sanitized)
             error_msg = "; ".join(sanitized_errors)
-            raise ValueError(f"SimpleFIN API returned errors: {error_msg}")
+            context.log.warning(f"SimpleFIN API returned errors (continuing with available data): {error_msg}")
         
         accounts = data.get('accounts', [])
         
         # Extract transaction data
+        successful_institutions = set()
+        failed_institutions = set()
+        
         for account in accounts:
             org = account.get('org', {})
+            institution_name = org.get('name', 'Unknown')
             
-            # Extract transaction data
-            transactions = account.get('transactions', [])
-            for transaction in transactions:
-                transaction_data = {
-                    'transaction_id': transaction.get('id'),
-                    'account_id': account.get('id'),
-                    'account_name': account.get('name'),
-                    'institution_domain': org.get('domain'),
-                    'institution_name': org.get('name'),
-                    'amount': transaction.get('amount'),
-                    'posted': transaction.get('posted'),
-                    'posted_date': datetime.fromtimestamp(transaction.get('posted', 0)).isoformat() if transaction.get('posted') else None,
-                    'transacted_at': transaction.get('transacted_at'),
-                    'transacted_date': datetime.fromtimestamp(transaction.get('transacted_at', 0)).isoformat() if transaction.get('transacted_at') else None,
-                    'description': transaction.get('description'),
-                    'pending': transaction.get('pending', False),
-                    'import_timestamp': import_timestamp.isoformat(),
-                    'import_date': import_date.isoformat()
-                    ,'extra': transaction.get('extra')
-                }
-                all_transactions_data.append(transaction_data)
+            try:
+                # Extract transaction data
+                transactions = account.get('transactions', [])
+                for transaction in transactions:
+                    transaction_data = {
+                        'transaction_id': transaction.get('id'),
+                        'account_id': account.get('id'),
+                        'account_name': account.get('name'),
+                        'institution_domain': org.get('domain'),
+                        'institution_name': institution_name,
+                        'amount': transaction.get('amount'),
+                        'posted': transaction.get('posted'),
+                        'posted_date': datetime.fromtimestamp(transaction.get('posted', 0)).isoformat() if transaction.get('posted') else None,
+                        'transacted_at': transaction.get('transacted_at'),
+                        'transacted_date': datetime.fromtimestamp(transaction.get('transacted_at', 0)).isoformat() if transaction.get('transacted_at') else None,
+                        'description': transaction.get('description'),
+                        'pending': transaction.get('pending', False),
+                        'import_timestamp': import_timestamp.isoformat(),
+                        'import_date': import_date.isoformat()
+                        ,'extra': transaction.get('extra')
+                    }
+                    all_transactions_data.append(transaction_data)
+                
+                successful_institutions.add(institution_name)
+                context.log.info(f"Successfully processed {len(transactions)} transactions from {institution_name}")
+                
+            except Exception as e:
+                failed_institutions.add(institution_name)
+                context.log.warning(f"Failed to process account '{account.get('name')}' from {institution_name}: {str(e)}")
+                continue
+        
+        # Log summary
+        if successful_institutions:
+            context.log.info(f"Successfully processed institutions: {', '.join(sorted(successful_institutions))}")
+        if failed_institutions:
+            context.log.warning(f"Failed to process institutions: {', '.join(sorted(failed_institutions))}")
         
     except requests.exceptions.RequestException as e:
         # TODO: Add proper error handling and logging
@@ -234,6 +254,7 @@ if __name__ == "__main__":
     python /opt/dagster/app/extractors/simplefin_api.py
     """
     import sys
+    from dagster import build_op_context
     
     access_url = os.getenv('SIMPLEFIN_ACCESS_URL')
     
@@ -248,7 +269,10 @@ if __name__ == "__main__":
     print("-" * 60)
     
     try:
-        df = simplefin_financial_data()
+        # Create a proper Dagster context for testing
+        context = build_op_context()
+        
+        df = simplefin_financial_data(context)
         
         print(f"\n✅ Success! Retrieved {len(df)} rows")
         print(f"\nColumns: {', '.join(df.columns.tolist())}")
