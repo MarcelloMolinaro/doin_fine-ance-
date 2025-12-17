@@ -64,13 +64,34 @@ C. Source Category (if available)
   - Log model version and metrics
 
 ### Step 4: Run Model on New Data & Add Predictions
-- [ ] Create Dagster asset for inference
-  - Load trained model artifact
-  - Run inference on new SimpleFin transactions
-  - Add `prediction_category` and `prediction_score` columns
-  - Write predictions back to DB (new table or append to existing)
-  - Handle confidence thresholds (maybe only predict if score > threshold)
-  - Track model version used for each prediction
+- [x] Create Dagster asset for inference
+  - [x] Load trained model artifact
+  - [x] Run inference on new SimpleFin transactions
+  - [x] Add `prediction_category` and `prediction_score` columns
+  - [x] Write predictions back to DB (`analytics.predicted_transactions`)
+  - [x] Handle confidence thresholds (currently 0.45)
+  - [ ] Track model version used for each prediction
+
+#### Current Status & Issues (as of Dec 2024):
+**Model Performance:**
+- ✅ Precision: HIGH (80%) - predictions are accurate when made
+- ❌ Recall: LOW (55%) - missing many transactions
+- ⚠️ With confidence_threshold=0.45, not predicting enough transactions
+- Model trained on 2022+ data only, ~4,500 training samples
+
+**Improvements Needed:**
+- [ ] **Adjust model parameters** to improve recall without sacrificing too much precision
+  - Consider adding back `class_weight='balanced'`
+  - Adjust confidence threshold (maybe 0.35-0.40)
+  - Experiment with different max_depth, min_samples_leaf values
+- [ ] **Build dbt models** to incorporate predictions in a way that surfaces the data
+  - Create view/table that combines original transactions with predictions
+  - Add logic to surface high-confidence predictions vs uncertain ones
+  - Create summary tables by category, confidence level, date, etc.
+- [ ] **Build ability to surface the data** (UI/dashboard)
+  - Streamlit app or similar to review predictions
+  - Filter by confidence level, category, date range
+  - Allow manual corrections and feedback loop to retrain
 
 ### Step 5: UI for Review & Editing
 - [ ] Build Streamlit app (recommended) or alternative UI
