@@ -25,6 +25,15 @@ with source as (
         transaction_id,
         account_id,
         account_name,
+        case 
+            when account_name = 'Junior Savers Savings' then 'Wintrust Savings'
+            when account_name = 'Student Checking' then 'Wintrust Checking'
+            when account_name = 'Blue Cash Preferred®' then 'Amex Shared'
+            when account_name = 'Chase Freedom Unlimited' then 'Chase Freedom - Marcello'
+            when account_name = 'United Explorer' then 'Chase United - Marcello'
+            when account_name = 'ONLINE CHECKING-3633' then 'Amalgamated'
+            else 'Missing mapping! talk to marcello stg_simplefin.sql'
+        end as mapped_account_name,
         institution_domain,
         institution_name,
         amount::numeric             as amount,

@@ -13,8 +13,8 @@ simplefin_full as (
         select
         transaction_id,
         account_id,
-        null as original_account_name,
-        account_name, -- Junior Checking, Student Checking, Blue Cash Preferred, etc.
+        account_name as original_account_name,
+        mapped_account_name as account_name, -- Junior Checking, Student Checking, Blue Cash Preferred, etc.
         null as detailed_account_name,
         null as owner_name,
         institution_domain,
