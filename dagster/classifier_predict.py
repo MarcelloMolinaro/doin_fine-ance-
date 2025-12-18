@@ -34,8 +34,9 @@ def predict_transaction_categories(context: AssetExecutionContext, train_transac
     text_vectorizer = pipeline['text_vectorizer']
     numerical_scaler = pipeline['numerical_scaler']
     classifier = pipeline['classifier']
+    model_version = pipeline.get('model_version', 'unknown')  # Get version or default to 'unknown'
     
-    context.log.info("Model loaded successfully")
+    context.log.info(f"Model loaded successfully (version: {model_version})")
     
     # Read uncategorized transactions
     query = text("SELECT * FROM analytics.fct_trxns_uncategorized")
@@ -129,15 +130,16 @@ def predict_transaction_categories(context: AssetExecutionContext, train_transac
     context.log.info(f"High confidence predictions: {n_high_confidence} ({n_high_confidence/len(df)*100:.1f}%)")
     context.log.info(f"Uncertain predictions: {n_uncertain} ({n_uncertain/len(df)*100:.1f}%)")
     
-    # Add prediction timestamp
+    # Add prediction timestamp and model version
     df['prediction_timestamp'] = datetime.now()
+    df['model_version'] = model_version
     
     # Save predictions to database
     df.to_sql(
         'predicted_transactions',
         engine,
         schema='analytics',
-        if_exists='replace',  # Replace table each time (or use 'append' to keep history)
+        if_exists='append',  # Replace table each time (or use 'replace' to replace history)
         index=False,
         method='multi'
     )

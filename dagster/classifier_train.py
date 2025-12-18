@@ -260,6 +260,7 @@ def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
         'text_vectorizer': text_vectorizer,
         'numerical_scaler': numerical_scaler,
         'classifier': classifier,
+        'model_version': model_version,  # Store version in pipeline
         'feature_names': [
             'text_tfidf', 'amount', 'amount_abs', 'is_negative', 
             'day_of_week', 'month', 'day_of_month', 'amount_bucket',

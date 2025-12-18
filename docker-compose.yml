@@ -37,6 +37,43 @@ services:
       timeout: 5s
       retries: 5
 
+  ui-backend:
+    build: ./ui/backend
+    container_name: ui-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DB_TYPE: postgres
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: dagster
+      POSTGRES_DB: dagster
+      POSTGRES_SCHEMA: analytics
+    volumes:
+      - ./ui/backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -c "
+      python init_db.py &&
+      uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+  ui-frontend:
+    build: ./ui/frontend
+    container_name: ui-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+    volumes:
+      - ./ui/frontend:/app
+      - /app/node_modules
+    depends_on:
+      - ui-backend
+
 
 volumes:
   postgres_data:

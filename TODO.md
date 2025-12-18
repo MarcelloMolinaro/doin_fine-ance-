@@ -70,9 +70,9 @@ C. Source Category (if available)
   - [x] Add `prediction_category` and `prediction_score` columns
   - [x] Write predictions back to DB (`analytics.predicted_transactions`)
   - [x] Handle confidence thresholds (currently 0.45)
-  - [ ] Track model version used for each prediction
+  - [x] Track model version used for each prediction
 
-#### Current Status & Issues (as of Dec 2024):
+#### Current Status & Issues (as of Dec 16 2024):
 **Model Performance:**
 - ✅ Precision: HIGH (80%) - predictions are accurate when made
 - ❌ Recall: LOW (55%) - missing many transactions

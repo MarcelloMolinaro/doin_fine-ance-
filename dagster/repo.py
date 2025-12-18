@@ -6,41 +6,9 @@ from extractors.simplefin_api import simplefin_financial_data
 from classifier_train import train_transaction_classifier
 from classifier_predict import predict_transaction_categories
 
-# @asset
-# def source1():
-#     data = pd.DataFrame({"id": [1,2,3], "value": [100,20,30]})
-#     return data
-
-# @asset
-# def source2():
-#     data = pd.DataFrame({"id": [1,2,3], "score": [5,7,82]})
-#     return data
-
-# @asset
-# def source3():
-#     data = pd.DataFrame({"id": [1,2,3], "category": ['A','A','A']})
-#     return data
-
 @asset 
 def load_to_postgres(context, simplefin_financial_data): # source1, source2, source3, weather_source, 
     engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
-    # Avoid dropping raw tables (dbt views depend on them). Truncate then append.
-    # with engine.begin() as conn:
-        # for testing only
-        # conn.execute(text("TRUNCATE TABLE public.source1"))
-        # conn.execute(text("TRUNCATE TABLE public.source2"))
-        # conn.execute(text("TRUNCATE TABLE public.source3"))
-        # conn.execute(text("TRUNCATE TABLE public.weather"))
-        # the real thing!
-        # conn.execute(text("DROP TABLE IF EXISTS public.simplefin"))
-        # conn.execute(text("TRUNCATE TABLE public.simplefin"))
-    # for testing only --------------------------------------------------------------------------------------------
-    # source1.to_sql('source1', engine, schema='public', if_exists='append', index=False, method='multi')
-    # source2.to_sql('source2', engine, schema='public', if_exists='append', index=False, method='multi')
-    # source3.to_sql('source3', engine, schema='public', if_exists='append', index=False, method='multi')
-    # weather_source.to_sql('weather', engine, schema='public', if_exists='append', index=False, method='multi')
-    # end test code ------------------------------------------------------------------------------------------------
-    # the real thing!
     simplefin_financial_data.to_sql('simplefin', engine, schema='public', if_exists='append', index=False, method='multi')
     engine.dispose()
     context.log.info("Loaded all sources into Postgres.")
