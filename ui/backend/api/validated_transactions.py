@@ -7,13 +7,16 @@ from db.connection import get_db
 from pydantic import BaseModel
 from decimal import Decimal
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/validated-transactions", tags=["validated-transactions"])
 
 
 class ValidatedTransactionResponse(BaseModel):
     """Response schema for validated transaction."""
-    transaction_id: str
+    transaction_id: Optional[str] = None  # Made Optional to handle NULL values
     account_id: Optional[str] = None
     account_name: Optional[str] = None
     institution_name: Optional[str] = None
@@ -39,23 +42,6 @@ def list_validated_transactions(
     db: Session = Depends(get_db)
 ):
     """Get list of validated transactions with optional filtering and sorting."""
-    # Build WHERE conditions
-    conditions = []
-    params = {
-        "limit": limit,
-        "offset": offset
-    }
-    
-    if category:
-        conditions.append("master_category = :category")
-        params["category"] = category
-    
-    if account_name_filter:
-        conditions.append("account_name ILIKE :account_filter")
-        params["account_filter"] = f"%{account_name_filter}%"
-    
-    where_clause = " AND ".join(conditions) if conditions else "1=1"
-    
     # Validate and set sort column (prevent SQL injection)
     allowed_sort_columns = {
         "transacted_date", "amount", "account_name", "master_category", 
@@ -67,7 +53,27 @@ def list_validated_transactions(
     sort_column = sort_by if sort_by else "transacted_date"
     sort_direction = "DESC" if sort_order.lower() == "desc" else "ASC"
     
-    query = text(f"""
+    # Build WHERE conditions
+    conditions = []
+    params = {}
+    
+    if category:
+        conditions.append("master_category = :category")
+        params["category"] = category
+    
+    if account_name_filter:
+        conditions.append("account_name ILIKE :account_filter")
+        params["account_filter"] = f"%{account_name_filter}%"
+    
+    # Always filter out NULL transaction_ids (they shouldn't exist but handle gracefully)
+    base_conditions = ["transaction_id IS NOT NULL"]
+    if conditions:
+        base_conditions.extend(conditions)
+    
+    where_clause = " AND ".join(base_conditions)
+    
+    # Build query - using f-string for ORDER BY is safe since we validate sort_column
+    query_str = f"""
         SELECT 
             transaction_id,
             account_id,
@@ -83,26 +89,45 @@ def list_validated_transactions(
         WHERE {where_clause}
         ORDER BY {sort_column} {sort_direction}
         LIMIT :limit OFFSET :offset
-    """)
+    """
     
-    result = db.execute(query, params)
+    params["limit"] = limit
+    params["offset"] = offset
     
-    transactions = []
-    for row in result:
-        transactions.append(ValidatedTransactionResponse(
-            transaction_id=row.transaction_id,
-            account_id=row.account_id,
-            account_name=row.account_name,
-            institution_name=row.institution_name,
-            amount=row.amount,
-            transacted_date=row.transacted_date,
-            description=row.description,
-            master_category=row.master_category,
-            source_category=row.source_category,
-            user_notes=row.user_notes
-        ))
-    
-    return transactions
+    try:
+        query = text(query_str)
+        result = db.execute(query, params)
+        
+        transactions = []
+        for row in result:
+            # Access row columns - SQLAlchemy Row objects support attribute access
+            transactions.append(ValidatedTransactionResponse(
+                transaction_id=getattr(row, 'transaction_id', None),
+                account_id=getattr(row, 'account_id', None),
+                account_name=getattr(row, 'account_name', None),
+                institution_name=getattr(row, 'institution_name', None),
+                amount=getattr(row, 'amount', None),
+                transacted_date=getattr(row, 'transacted_date', None),
+                description=getattr(row, 'description', None),
+                master_category=getattr(row, 'master_category', None),
+                source_category=getattr(row, 'source_category', None),
+                user_notes=getattr(row, 'user_notes', None)
+            ))
+        
+        return transactions
+    except Exception as e:
+        # Log the full error for debugging
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"Error querying validated transactions: {error_details}")
+        logger.error(f"Query: {query_str}")
+        logger.error(f"Params: {params}")
+        
+        # Return error with details for debugging
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error querying validated transactions: {str(e)}"
+        )
 
 
 @router.get("/categories/list", response_model=List[str])
