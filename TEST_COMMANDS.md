@@ -90,3 +90,16 @@ docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --sele
 ```
 
 **Note:** The easiest way to materialize assets is via the Dagster UI at http://localhost:3000. Navigate to Assets and click "Materialize" on the asset you want to run.
+
+
+### For testing the incremental load process
+
+```sql
+-- Cleans up Categorization tables -- Nothing shows as "validated"
+TRUNCATE TABLE public.user_categories;
+
+-- Removes all data from the validated table
+-- Must run the table first in --Full-Refresh after truncating all records
+TRUNCATE TABLE analytics.fct_validated_trxns;
+
+```

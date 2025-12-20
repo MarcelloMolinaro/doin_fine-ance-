@@ -2,8 +2,8 @@
 
 ## Short Term
 - [x] Build classifier to categorize new transactions
-  - [ ] Add recommended Features to Add
-  - [ ] Test running the prediction.py!
+  - [x] Add recommended Features to Add
+  - [x] Test running the prediction.py!
 - [x] Build Python models to pull data from SimpleFIN
   - [ ] Resolve all to-do's in the simplefin_api.py doc
 - [ ] Enable dbt <> dagster connection so I don't need to define each source? I haven't built any of this out yet
@@ -11,6 +11,7 @@
 - [ ] Stop truncating source tables and start inserting/appending (especially finance data!)
   - [ ] create a qualify statement that only takes the most recent data and handles dupes!
 - [ ] Add remaining sources (Chase Marcello, Chase Allegra, Mntn 1)
+- [ ] Figure out how to exclude Simplefin data that I have validated AND is in fct_validated_trxns from the UI ... Maybe switch the uncategorized source to the master model?
 
 ## Long Term
 - [ ] What's up with the .user.yml file? untrack that?
