@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: stg_historic_trxns
+    description: "Staging model for historic transactions with account mapping and transaction_id generation"
+    columns:
+      - name: transaction_id
+        description: "Unique identifier created from account_name | amount | transaction_date | description"
+        tests:
+          - unique

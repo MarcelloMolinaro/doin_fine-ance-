@@ -6,7 +6,7 @@ with
 
 user_categories as (select * from {{ source('public_sources', 'user_categories') }})
 
-, trxn_details as (select * from {{ ref('fct_trxns_uncategorized') }})
+, trxn_details as (select * from {{ ref('int_trxns') }})
 
 , final as (
     

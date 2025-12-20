@@ -41,8 +41,12 @@ with source as ( select * from {{ ref('historic_transactions') }} )
 , final as (
 
     select
-    -- TODO: Add transaction_id from historic transactions
-        null::text                             as transaction_id,  
+        -- Create transaction_id from account_name | amount | transaction_date | description
+        -- Handle NULLs by using COALESCE to convert to empty string
+        (coalesce(account_name, '') || '|' || 
+         coalesce(amount::text, '') || '|' || 
+         coalesce(transaction_date::text, '') || '|' || 
+         coalesce(description, '')) as transaction_id,  
         null::text                             as account_id,
         account_name::text                     as original_account_name,
         mapped_account_name::text              as account_name,
