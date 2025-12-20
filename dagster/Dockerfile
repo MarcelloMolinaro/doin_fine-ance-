@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir \
     dagster \
     dagster-postgres \
     dagit \
+    dagster-dbt \
     pandas \
     SQLAlchemy \
     requests \
