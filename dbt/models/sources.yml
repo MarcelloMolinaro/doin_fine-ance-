@@ -28,3 +28,13 @@ sources:
         description: deprecated
       - name: weather
         description: deprecated
+      - name: user_categories
+        description: "User-defined category overrides for transactions. Created and edited from the UI."
+        columns:
+          - name: transaction_id
+          - name: master_category
+          - name: source_category
+          - name: notes
+          - name: validated
+          - name: updated_by
+          - name: updated_at

@@ -1,11 +1,9 @@
 {{ config(
-    materialized = 'table'
+    materialized = 'view'
 ) }}
 
 with 
 
-src_simplefin as (select * from {{ ref('int_trxns') }}),
+src_simplefin as (select * from {{ ref('int_trxns') }})
 
-final as ( select * from src_simplefin )
-
-select * from final
+select * from src_simplefin
