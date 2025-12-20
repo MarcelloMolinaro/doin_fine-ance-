@@ -355,24 +355,206 @@ function App() {
     )
   }
 
-  // Placeholder component for All Data
+  // All Data page component
   const AllDataPage = () => {
+    const [validatedTransactions, setValidatedTransactions] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState(null)
+    const [sortBy, setSortBy] = useState('transacted_date')
+    const [sortOrder, setSortOrder] = useState('desc')
+    const [categoryFilter, setCategoryFilter] = useState('')
+    const [accountFilter, setAccountFilter] = useState('')
+    const [availableCategories, setAvailableCategories] = useState([])
+
+    useEffect(() => {
+      fetchValidatedTransactions()
+      fetchCategories()
+    }, [sortBy, sortOrder, categoryFilter, accountFilter])
+
+    const fetchValidatedTransactions = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const params = {
+          limit: 500,
+          sort_by: sortBy,
+          sort_order: sortOrder
+        }
+        if (categoryFilter) params.category = categoryFilter
+        if (accountFilter) params.account_name_filter = accountFilter
+        
+        const response = await axios.get(`${API_BASE_URL}/api/validated-transactions`, { params })
+        setValidatedTransactions(response.data)
+      } catch (err) {
+        setError(`Failed to load validated transactions: ${err.message}`)
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const fetchCategories = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/validated-transactions/categories/list`)
+        setAvailableCategories(response.data || [])
+      } catch (err) {
+        console.error('Failed to load categories:', err)
+      }
+    }
+
+    const handleSort = (column) => {
+      if (sortBy === column) {
+        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+      } else {
+        setSortBy(column)
+        setSortOrder('desc')
+      }
+    }
+
+    const formatAmount = (amount) => {
+      if (!amount) return '-'
+      const numAmount = parseFloat(amount)
+      const formatted = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+      }).format(Math.abs(numAmount))
+      
+      return (
+        <span className={`amount ${numAmount < 0 ? 'amount-negative' : 'amount-positive'}`}>
+          {numAmount < 0 ? '-' : '+'}{formatted}
+        </span>
+      )
+    }
+
+    const formatDate = (dateString) => {
+      if (!dateString) return '-'
+      const date = new Date(dateString)
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    }
+
+    const getSortIcon = (column) => {
+      if (sortBy !== column) return '↕️'
+      return sortOrder === 'asc' ? '↑' : '↓'
+    }
+
     return (
       <div className="placeholder-page">
         <div className="header">
           <h1>All Data</h1>
-          <p>View and explore all transaction data.</p>
+          <p>View and explore validated transaction data.</p>
         </div>
-        <div style={{ 
-          background: 'white', 
-          padding: '40px', 
-          borderRadius: '8px', 
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-          textAlign: 'center',
-          color: '#6c757d'
-        }}>
-          <p style={{ fontSize: '1.1rem', marginBottom: '10px' }}>🚧 Coming Soon</p>
-          <p>A comprehensive view of all transaction data, with filtering, sorting, and export capabilities will be available here.</p>
+
+        {error && (
+          <div className="error">{error}</div>
+        )}
+
+        <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontWeight: '500' }}>Category:</label>
+            <select
+              className="category-select"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              style={{ minWidth: '150px' }}
+            >
+              <option value="">All Categories</option>
+              {availableCategories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontWeight: '500' }}>Account:</label>
+            <input
+              type="text"
+              placeholder="Filter by account name..."
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+              style={{ padding: '6px 12px', border: '1px solid #ced4da', borderRadius: '4px', minWidth: '200px' }}
+            />
+          </div>
+          {(categoryFilter || accountFilter) && (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                setCategoryFilter('')
+                setAccountFilter('')
+              }}
+              style={{ marginLeft: '10px' }}
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+
+        <div className="transactions-table">
+          {loading ? (
+            <div className="loading" style={{ padding: '40px' }}>Loading validated transactions...</div>
+          ) : validatedTransactions.length === 0 ? (
+            <div className="loading" style={{ padding: '40px' }}>No validated transactions found.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th 
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('transacted_date')}
+                  >
+                    Date {getSortIcon('transacted_date')}
+                  </th>
+                  <th 
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('description')}
+                  >
+                    Description {getSortIcon('description')}
+                  </th>
+                  <th 
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('account_name')}
+                  >
+                    Account {getSortIcon('account_name')}
+                  </th>
+                  <th 
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('amount')}
+                  >
+                    Amount {getSortIcon('amount')}
+                  </th>
+                  <th 
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('master_category')}
+                  >
+                    Category {getSortIcon('master_category')}
+                  </th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {validatedTransactions.map((transaction) => (
+                  <tr key={transaction.transaction_id}>
+                    <td>{formatDate(transaction.transacted_date)}</td>
+                    <td>{transaction.description || '-'}</td>
+                    <td>{transaction.account_name || '-'}</td>
+                    <td>{formatAmount(transaction.amount)}</td>
+                    <td>
+                      {transaction.master_category ? (
+                        <span className="category-badge category-confident">
+                          {transaction.master_category}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#6c757d' }}>-</span>
+                      )}
+                    </td>
+                    <td>{transaction.user_notes || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     )

@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.transactions import router as transactions_router
+from api.validated_transactions import router as validated_transactions_router
 from db.connection import engine
 from models.transaction import Base
 
@@ -26,6 +27,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(transactions_router)
+app.include_router(validated_transactions_router)
 
 
 @app.get("/")
