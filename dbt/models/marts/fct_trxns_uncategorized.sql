@@ -1,5 +1,5 @@
 {{ config(
-    materialized = 'table'
+    materialized = 'view'
 ) }}
 
 with 
@@ -10,7 +10,8 @@ src as (select * from {{ ref('int_trxns') }})
 
 , final as (
     
-    select * from src
+    select * 
+    from src
     where 
         master_category is null
         and transaction_id not in (

@@ -1,6 +1,18 @@
 version: 2
 
 sources:
+  - name: predictions_sources
+    database: "{{ target.database }}"
+    schema: analytics
+    tables:
+      - name: predicted_transactions
+        description: "Predicted transactions from the transaction classifier."
+        columns:
+          - name: transaction_id
+          - name: predicted_master_category
+          - name: prediction_confidence
+          - name: model_version
+          - name: prediction_timestamp
   - name: public_sources
     database: "{{ target.database }}"
     schema: public
@@ -20,14 +32,6 @@ sources:
           - name: transacted_date
           - name: description
           - name: pending
-      - name: source1
-        description: deprecated 
-      - name: source2
-        description: deprecated
-      - name: source3
-        description: deprecated
-      - name: weather
-        description: deprecated
       - name: user_categories
         description: "User-defined category overrides for transactions. Created and edited from the UI."
         columns:

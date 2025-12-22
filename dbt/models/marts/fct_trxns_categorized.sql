@@ -1,5 +1,5 @@
 {{ config(
-    materialized = 'table'
+    materialized = 'view'
 ) }}
 
 with src as (select * from {{ ref('int_trxns') }}),

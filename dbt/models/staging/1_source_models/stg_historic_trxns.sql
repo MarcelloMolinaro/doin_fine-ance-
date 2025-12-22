@@ -2,7 +2,9 @@
     materialized = 'view',
 ) }}
 
-with source as ( select * from {{ ref('historic_transactions') }} )
+with 
+
+source as ( select * from {{ ref('historic_transactions') }} )
 
 , accounts_mapped as (
     select
@@ -42,7 +44,6 @@ with source as ( select * from {{ ref('historic_transactions') }} )
 
     select
         -- Create transaction_id from account_name | amount | transaction_date | description
-        -- Handle NULLs by using COALESCE to convert to empty string
         (coalesce(account_name, '') || '|' || 
          coalesce(amount::text, '') || '|' || 
          coalesce(transaction_date::text, '') || '|' || 
