@@ -166,52 +166,81 @@ def categorize_transaction(
 
 
 def get_categories(db: Session) -> List[str]:
-    """Get list of unique master categories from user categories, transactions, and predictions."""
+    """Get list of unique master categories from training data, user categories, transactions, and predictions."""
     categories = set()
     
+    # First, get ALL categories from training data (fct_trxns_categorized)
+    # This ensures all categories the model was trained on are available
+    # Wrap in try/except in case table doesn't exist yet
+    try:
+        training_categories_query = text("""
+            SELECT DISTINCT master_category 
+            FROM analytics.fct_trxns_categorized 
+            WHERE master_category IS NOT NULL
+        """)
+        training_result = db.execute(training_categories_query)
+        for row in training_result:
+            if row.master_category:
+                categories.add(row.master_category)
+    except Exception as e:
+        # Table might not exist yet, that's okay - continue with other sources
+        pass
+    
     # Get categories from user_categories table
-    user_categories_query = text("""
-        SELECT DISTINCT master_category 
-        FROM public.user_categories 
-        WHERE master_category IS NOT NULL
-    """)
+    try:
+        user_categories_query = text("""
+            SELECT DISTINCT master_category 
+            FROM public.user_categories 
+            WHERE master_category IS NOT NULL
+        """)
+        user_result = db.execute(user_categories_query)
+        for row in user_result:
+            if row.master_category:
+                categories.add(row.master_category)
+    except Exception as e:
+        # Table might not exist yet, that's okay
+        pass
     
     # Get from transactions (source categories)
-    transaction_categories_query = text("""
-        SELECT DISTINCT master_category 
-        FROM analytics.fct_trxns_with_predictions 
-        WHERE master_category IS NOT NULL
-    """)
+    try:
+        transaction_categories_query = text("""
+            SELECT DISTINCT master_category 
+            FROM analytics.fct_trxns_with_predictions 
+            WHERE master_category IS NOT NULL
+        """)
+        trans_result = db.execute(transaction_categories_query)
+        for row in trans_result:
+            if row.master_category:
+                categories.add(row.master_category)
+    except Exception as e:
+        # Table might not exist yet, that's okay
+        pass
     
     # Also get predicted categories (so users can see what the model predicts)
-    predicted_categories_query = text("""
-        SELECT DISTINCT predicted_master_category 
-        FROM analytics.fct_trxns_with_predictions 
-        WHERE predicted_master_category IS NOT NULL
-    """)
+    try:
+        predicted_categories_query = text("""
+            SELECT DISTINCT predicted_master_category 
+            FROM analytics.fct_trxns_with_predictions 
+            WHERE predicted_master_category IS NOT NULL
+        """)
+        predicted_result = db.execute(predicted_categories_query)
+        for row in predicted_result:
+            if row.predicted_master_category:
+                categories.add(row.predicted_master_category)
+    except Exception as e:
+        # Table might not exist yet, that's okay
+        pass
     
-    user_result = db.execute(user_categories_query)
-    for row in user_result:
-        if row.master_category:
-            categories.add(row.master_category)
-    
-    trans_result = db.execute(transaction_categories_query)
-    for row in trans_result:
-        if row.master_category:
-            categories.add(row.master_category)
-    
-    predicted_result = db.execute(predicted_categories_query)
-    for row in predicted_result:
-        if row.predicted_master_category:
-            categories.add(row.predicted_master_category)
-    
-    # Add common categories if the list is empty
+    # Add common categories if the list is empty (fallback)
     if not categories:
         categories = {
             "Dining out", "Groceries", "Income", "Bars & Restaurants",
             "Auto & Transport", "Bills & Utilities", "Rent", "Entertainment",
             "Shopping", "Travel", "Gas & Fuel", "Coffee Shops", "Restaurants"
         }
+    
+    # Filter out UNCERTAIN - users don't need to assign this category
+    categories.discard('UNCERTAIN')
     
     return sorted(list(categories))
 
@@ -220,8 +249,9 @@ def get_transactions_filtered(
     db: Session,
     limit: int = 100,
     offset: int = 0,
-    view_mode: Optional[str] = None  # 'unvalidated_predicted', 'unvalidated_unpredicted', 'validated', None (all)
-) -> List[TransactionResponse]:
+    view_mode: Optional[str] = None,  # 'unvalidated_predicted', 'unvalidated_unpredicted', 'validated', None (all)
+    description_search: Optional[str] = None
+) -> dict:
     """
     Get transactions filtered by validation and prediction status.
     
@@ -256,8 +286,27 @@ def get_transactions_filtered(
         # Validated transactions
         conditions.append("COALESCE(uc.validated, false) = true")
     
+    # Add description search filter
+    if description_search:
+        conditions.append("t.description ILIKE :description_search")
+        params["description_search"] = f"%{description_search}%"
+    
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     
+    # First, get total count for pagination
+    count_query = text(f"""
+        SELECT COUNT(*) as total
+        FROM analytics.fct_trxns_with_predictions t
+        LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
+        WHERE {where_clause}
+    """)
+    count_params = {k: v for k, v in params.items() if k != 'limit' and k != 'offset'}
+    if description_search:
+        count_params["description_search"] = f"%{description_search}%"
+    count_result = db.execute(count_query, count_params)
+    total_count = count_result.scalar() or 0
+    
+    # Then get the paginated results
     query = text(f"""
         SELECT 
             t.transaction_id,
@@ -300,7 +349,10 @@ def get_transactions_filtered(
             validated=row.validated
         ))
     
-    return transactions
+    return {
+        "transactions": transactions,
+        "total_count": total_count
+    }
 
 
 def update_validation(db: Session, transaction_id: str, validated: bool) -> UserCategory:

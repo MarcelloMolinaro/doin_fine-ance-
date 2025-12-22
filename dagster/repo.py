@@ -1,4 +1,4 @@
-from dagster import Definitions, asset, Config, AssetExecutionContext
+from dagster import Definitions, asset, Config, AssetExecutionContext, define_asset_job, op, job, OpExecutionContext
 import pandas as pd
 from sqlalchemy import create_engine, text
 from pydantic import Field
@@ -143,25 +143,21 @@ def run_dbt_test(context, run_dbt):
     context.log.info("dbt tests passed.")
 
 
-class FctValidatedTrxnsConfig(Config):
-    full_refresh: bool = Field(
-        default=False,
-        description="If True, run dbt with --full-refresh flag"
-    )
-
-
-@asset
-def run_fct_validated_trxns(context: AssetExecutionContext, config: FctValidatedTrxnsConfig):
+@op
+def refresh_fct_validated_trxns_op(context: OpExecutionContext):
     """Run only the fct_validated_trxns dbt model."""
     import subprocess
     import os
 
+    # Get config with default value
+    full_refresh = context.op_config.get("full_refresh", False) if context.op_config else False
+    
     os.environ["DBT_PROFILES_DIR"] = "/opt/dbt"
     
     # Build dbt command
-    cmd = ["dbt", "run", "--project-dir", "/opt/dbt", "--select", "fct_validated_trxns"]
+    cmd = ["dbt", "run", "--project-dir", "/opt/dbt", "--select", "fct_validated_trxns+"]
     
-    if config.full_refresh:
+    if full_refresh:
         cmd.append("--full-refresh")
         context.log.info("Running fct_validated_trxns with --full-refresh")
     else:
@@ -183,13 +179,18 @@ def run_fct_validated_trxns(context: AssetExecutionContext, config: FctValidated
     
     context.log.info("fct_validated_trxns model run complete.")
 
+# Define job to refresh validated transactions
+@job(name="refresh_validated_trxns")
+def refresh_validated_trxns_job():
+    """Refresh the fct_validated_trxns model after new validations."""
+    refresh_fct_validated_trxns_op()
+
 # disable testing assets for now [source1, source2, source3, weather_source,]
 all_assets = [
     simplefin_financial_data, 
     load_to_postgres, 
     run_dbt,  # Keep this for now as a fallback, or remove if using all_dbt_assets
     run_dbt_test,  # Run dbt tests after models are built
-    run_fct_validated_trxns,
     train_transaction_classifier,
     predict_transaction_categories
 ]
@@ -205,5 +206,6 @@ if dbt_resource:
 
 definitions = Definitions(
     assets=all_assets,
-    resources=resources if resources else None
+    resources=resources if resources else None,
+    jobs=[refresh_validated_trxns_job]
 )

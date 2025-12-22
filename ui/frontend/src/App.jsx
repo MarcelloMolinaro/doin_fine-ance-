@@ -14,27 +14,44 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState({})
   const [notes, setNotes] = useState({})
   const [validated, setValidated] = useState({})
+  const [selectedTransactions, setSelectedTransactions] = useState(new Set()) // New: selection state (separate from validation)
   const [activeTab, setActiveTab] = useState('transactions') // 'transactions', 'model-details', 'all-data'
   const [viewMode, setViewMode] = useState('unvalidated_predicted') // 'unvalidated_predicted', 'unvalidated_unpredicted', 'validated'
   const [validatingAll, setValidatingAll] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize] = useState(100) // Records per page
+  const [descriptionFilter, setDescriptionFilter] = useState('')
+  const [totalCount, setTotalCount] = useState(0)
+  const [refreshingValidated, setRefreshingValidated] = useState(false)
+
+  useEffect(() => {
+    setCurrentPage(1) // Reset to first page when view mode changes
+    setDescriptionFilter('') // Reset filter when view mode changes
+  }, [viewMode])
 
   useEffect(() => {
     fetchTransactions()
     fetchCategories()
-  }, [viewMode])
+  }, [viewMode, currentPage, descriptionFilter])
 
   const fetchTransactions = async () => {
     try {
       setLoading(true)
       setError(null)
       const params = { 
-        limit: 100,
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize,
         view_mode: viewMode
       }
+      if (descriptionFilter.trim()) {
+        params.description_search = descriptionFilter.trim()
+      }
       const response = await axios.get(`${API_BASE_URL}/api/transactions`, { params })
-      const fetchedTransactions = response.data
+      const fetchedTransactions = response.data.transactions || response.data
+      const count = response.data.total_count || fetchedTransactions.length
       setTransactions(fetchedTransactions)
+      setTotalCount(count)
       
       // Initialize state from fetched transactions
       const initialNotes = {}
@@ -53,6 +70,8 @@ function App() {
       setNotes(initialNotes)
       setValidated(initialValidated)
       setSelectedCategory(initialSelected)
+      // Reset selection when transactions change (new view mode, etc.)
+      setSelectedTransactions(new Set())
     } catch (err) {
       setError(`Failed to load transactions: ${err.message}`)
       console.error(err)
@@ -186,10 +205,21 @@ function App() {
       setError(null)
       setSuccess(null)
 
+      // Use selected transactions if any are selected, otherwise validate all
+      const transactionsToValidate = selectedTransactions.size > 0
+        ? transactions.filter(t => selectedTransactions.has(t.transaction_id))
+        : transactions
+
+      if (transactionsToValidate.length === 0) {
+        setError('No transactions selected to validate')
+        setValidatingAll(false)
+        return
+      }
+
       let validatedCount = 0
       
-      // Validate each transaction, using selected category or predicted category
-      for (const transaction of transactions) {
+      // Validate each selected transaction, using selected category or predicted category
+      for (const transaction of transactionsToValidate) {
         const assignedCategory = selectedCategory[transaction.transaction_id] || transaction.master_category
         const predictedCategory = transaction.predicted_master_category
         const categoryToUse = assignedCategory || (predictedCategory && predictedCategory !== 'UNCERTAIN' ? predictedCategory : null)
@@ -213,6 +243,7 @@ function App() {
       }
 
       setSuccess(`Marked ${validatedCount} transactions as validated`)
+      setSelectedTransactions(new Set()) // Clear selection after validation
       await fetchTransactions()
     } catch (err) {
       setError(`Failed to validate transactions: ${err.message}`)
@@ -220,6 +251,39 @@ function App() {
     } finally {
       setValidatingAll(false)
     }
+  }
+
+  const handleSelectTransaction = (transactionId, isSelected) => {
+    const newSelected = new Set(selectedTransactions)
+    if (isSelected) {
+      newSelected.add(transactionId)
+    } else {
+      newSelected.delete(transactionId)
+    }
+    setSelectedTransactions(newSelected)
+  }
+
+  const handleSelectAllPredicted = () => {
+    const predictedTransactions = transactions.filter(t => 
+      t.predicted_master_category && 
+      t.predicted_master_category !== 'UNCERTAIN' &&
+      !validated[t.transaction_id]
+    )
+    const newSelected = new Set(selectedTransactions)
+    predictedTransactions.forEach(t => newSelected.add(t.transaction_id))
+    setSelectedTransactions(newSelected)
+  }
+
+  const handleSelectAll = () => {
+    // Select all transactions on the current page (excluding already validated ones)
+    const unvalidatedTransactions = transactions.filter(t => !validated[t.transaction_id])
+    const newSelected = new Set(selectedTransactions)
+    unvalidatedTransactions.forEach(t => newSelected.add(t.transaction_id))
+    setSelectedTransactions(newSelected)
+  }
+
+  const handleDeselectAll = () => {
+    setSelectedTransactions(new Set())
   }
 
 
@@ -248,21 +312,81 @@ function App() {
     })
   }
 
+  const getCategoryColor = (category) => {
+    // Color mapping for categories - similar categories get similar colors
+    const colorMap = {
+      // Food & Dining
+      'Dining out': '#e74c3c', // Red
+      'Bars & Restaurants': '#c0392b', // Dark red
+      'Groceries': '#27ae60', // Green
+      'Coffee Shops': '#d35400', // Orange
+      'Restaurants': '#e67e22', // Light orange
+      
+      // Transportation
+      'Transportation': '#3498db', // Blue
+      'Gas': '#2980b9', // Dark blue
+      'Auto & Transport': '#5dade2', // Light blue
+      
+      // Housing
+      'Rent': '#9b59b6', // Purple
+      'Home': '#8e44ad', // Dark purple
+      
+      // Income & Finance
+      'Income': '#2ecc71', // Bright green
+      'Interest': '#1e8449', // Dark green
+      'Credit fee': '#e74c3c', // Red (fees)
+      
+      // Utilities & Bills
+      'Utilities': '#f39c12', // Yellow/orange
+      'Bills & Utilities': '#f1c40f', // Yellow
+      'Insurance': '#16a085', // Teal
+      
+      // Shopping & Entertainment
+      'Shopping': '#e91e63', // Pink
+      'Entertainment': '#ec407a', // Light pink
+      'Fun!™': '#ad1457', // Dark pink
+      
+      // Other
+      'Travel': '#00bcd4', // Cyan
+      'Lodging': '#0097a7', // Dark cyan
+      'Donation': '#795548', // Brown
+      'Transfers': '#607d8b', // Blue grey
+    }
+    
+    return colorMap[category] || '#6c757d' // Default grey for unknown categories
+  }
+
   const getPredictedCategoryDisplay = (transaction) => {
     // Show predicted category if exists and not UNCERTAIN
     if (transaction.predicted_master_category && transaction.predicted_master_category !== 'UNCERTAIN') {
-      const confidence = transaction.prediction_confidence 
-        ? (parseFloat(transaction.prediction_confidence) * 100).toFixed(0)
-        : null
+      const categoryColor = getCategoryColor(transaction.predicted_master_category)
       return (
-        <span className="category-badge category-predicted" title={`Predicted (${confidence}% confidence)`}>
+        <span 
+          className="category-badge category-predicted" 
+          style={{
+            backgroundColor: categoryColor,
+            color: 'white',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            fontSize: '0.875rem',
+            fontWeight: '500',
+            display: 'inline-block'
+          }}
+        >
           {transaction.predicted_master_category}
-          {confidence && ` (${confidence}%)`}
         </span>
       )
     }
     // No category or UNCERTAIN
     return <span style={{ color: '#6c757d', fontStyle: 'italic' }}>No prediction</span>
+  }
+
+  const getConfidenceDisplay = (transaction) => {
+    if (transaction.prediction_confidence && transaction.predicted_master_category && transaction.predicted_master_category !== 'UNCERTAIN') {
+      const confidence = (parseFloat(transaction.prediction_confidence) * 100).toFixed(0)
+      return <span style={{ color: '#495057', fontSize: '0.875rem' }}>{confidence}%</span>
+    }
+    return <span style={{ color: '#6c757d', fontStyle: 'italic' }}>-</span>
   }
 
   if (loading && transactions.length === 0) {
@@ -601,15 +725,94 @@ function App() {
             </div>
           </div>
 
+          {/* Search and Filter Section */}
+          <div style={{ marginTop: '15px', marginBottom: '15px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label style={{ fontWeight: '500', whiteSpace: 'nowrap' }}>Search Description:</label>
+              <input
+                type="text"
+                placeholder="Filter by description..."
+                value={descriptionFilter}
+                onChange={(e) => {
+                  setDescriptionFilter(e.target.value)
+                  setCurrentPage(1) // Reset to first page when searching
+                }}
+                style={{
+                  padding: '6px 12px',
+                  border: '1px solid #ced4da',
+                  borderRadius: '4px',
+                  minWidth: '200px',
+                  fontSize: '0.875rem'
+                }}
+              />
+              {descriptionFilter && (
+                <button
+                  onClick={() => {
+                    setDescriptionFilter('')
+                    setCurrentPage(1)
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #ced4da',
+                    borderRadius: '4px',
+                    background: 'white',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem'
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {totalCount > 0 && (
+              <span style={{ color: '#495057', fontSize: '0.875rem' }}>
+                Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalCount)} of {totalCount} transactions
+              </span>
+            )}
+          </div>
+
           {(viewMode === 'unvalidated_predicted' || viewMode === 'unvalidated_unpredicted') && transactions.length > 0 && (
             <div className="bulk-actions" style={{ marginTop: '15px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {viewMode === 'unvalidated_predicted' ? (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleSelectAllPredicted}
+                    style={{ backgroundColor: '#6c757d', color: 'white' }}
+                  >
+                    Select All Predicted ({transactions.filter(t => t.predicted_master_category && t.predicted_master_category !== 'UNCERTAIN' && !validated[t.transaction_id]).length})
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleSelectAll}
+                    style={{ backgroundColor: '#6c757d', color: 'white' }}
+                  >
+                    Select All ({transactions.filter(t => !validated[t.transaction_id]).length})
+                  </button>
+                )}
+                {selectedTransactions.size > 0 && (
+                  <>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleDeselectAll}
+                      style={{ backgroundColor: '#6c757d', color: 'white' }}
+                    >
+                      Deselect All
+                    </button>
+                    <span style={{ color: '#495057', fontWeight: '500' }}>
+                      {selectedTransactions.size} selected
+                    </span>
+                  </>
+                )}
                 <button
                   className="btn btn-primary"
                   onClick={handleBulkValidate}
                   disabled={validatingAll}
                 >
-                  {validatingAll ? 'Validating...' : `Mark All (${transactions.length}) as Validated`}
+                  {validatingAll ? 'Validating...' : selectedTransactions.size > 0 
+                    ? `Validate Selected (${selectedTransactions.size})` 
+                    : `Mark All (${transactions.length}) as Validated`}
                 </button>
               </div>
             </div>
@@ -647,22 +850,65 @@ function App() {
         </div>
       )}
 
+      {/* Pagination Controls - Top */}
+      {totalCount > pageSize && (
+        <div style={{ marginTop: '15px', marginBottom: '15px', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
+          <button
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #ced4da',
+              borderRadius: '4px',
+              background: currentPage === 1 ? '#e9ecef' : 'white',
+              cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+              fontSize: '0.875rem'
+            }}
+          >
+            Previous
+          </button>
+          <span style={{ color: '#495057', fontSize: '0.875rem' }}>
+            Page {currentPage} of {Math.ceil(totalCount / pageSize)}
+          </span>
+          <button
+            onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalCount / pageSize), prev + 1))}
+            disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #ced4da',
+              borderRadius: '4px',
+              background: currentPage >= Math.ceil(totalCount / pageSize) ? '#e9ecef' : 'white',
+              cursor: currentPage >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
+              fontSize: '0.875rem'
+            }}
+          >
+            Next
+          </button>
+        </div>
+      )}
+
       <div className="transactions-table">
-        {transactions.length === 0 ? (
+        {loading && transactions.length === 0 ? (
           <div className="loading" style={{ padding: '40px' }}>
-            No transactions found for this view.
+            Loading transactions...
+          </div>
+        ) : transactions.length === 0 ? (
+          <div className="loading" style={{ padding: '40px' }}>
+            {descriptionFilter ? 'No transactions found matching your search.' : 'No transactions found for this view.'}
           </div>
         ) : (
           <table>
             <thead>
               <tr>
+                <th style={{ width: '40px' }}>Select</th>
                 <th style={{ width: '40px' }}>✓</th>
                 <th style={{ width: '120px' }}>Date</th>
                 <th>Description</th>
-                <th style={{ width: '200px' }}>Account</th>
-                <th>Amount</th>
                 <th>Predicted Category</th>
+                <th>Amount</th>
                 <th>Assign Category</th>
+                <th style={{ width: '200px' }}>Account</th>
+                <th style={{ width: '80px' }}>Confidence %</th>
                 {showNotes && <th style={{ width: '150px' }}>Notes</th>}
                 {!showNotes && (
                   <th style={{ width: '40px', textAlign: 'center' }}>
@@ -686,7 +932,17 @@ function App() {
             </thead>
             <tbody>
               {transactions.map((transaction) => (
-                <tr key={transaction.transaction_id}>
+                <tr key={transaction.transaction_id} style={{ backgroundColor: selectedTransactions.has(transaction.transaction_id) ? '#e7f3ff' : 'transparent' }}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.has(transaction.transaction_id)}
+                      onChange={(e) => handleSelectTransaction(transaction.transaction_id, e.target.checked)}
+                      disabled={updatingId === transaction.transaction_id}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                      title="Select transaction"
+                    />
+                  </td>
                   <td>
                     <input
                       type="checkbox"
@@ -699,9 +955,8 @@ function App() {
                   </td>
                   <td>{formatDate(transaction.transacted_date)}</td>
                   <td>{transaction.description || '-'}</td>
-                  <td>{transaction.account_name || '-'}</td>
-                  <td>{formatAmount(transaction.amount)}</td>
                   <td>{getPredictedCategoryDisplay(transaction)}</td>
+                  <td>{formatAmount(transaction.amount)}</td>
                   <td>
                     <select
                       className="category-select"
@@ -731,6 +986,8 @@ function App() {
                       )}
                     </select>
                   </td>
+                  <td>{transaction.account_name || '-'}</td>
+                  <td>{getConfidenceDisplay(transaction)}</td>
                   {showNotes && (
                     <td>
                       <input
@@ -758,6 +1015,43 @@ function App() {
           </table>
         )}
       </div>
+
+      {/* Pagination Controls - Bottom */}
+      {totalCount > pageSize && (
+        <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
+          <button
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #ced4da',
+              borderRadius: '4px',
+              background: currentPage === 1 ? '#e9ecef' : 'white',
+              cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+              fontSize: '0.875rem'
+            }}
+          >
+            Previous
+          </button>
+          <span style={{ color: '#495057', fontSize: '0.875rem' }}>
+            Page {currentPage} of {Math.ceil(totalCount / pageSize)}
+          </span>
+          <button
+            onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalCount / pageSize), prev + 1))}
+            disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #ced4da',
+              borderRadius: '4px',
+              background: currentPage >= Math.ceil(totalCount / pageSize) ? '#e9ecef' : 'white',
+              cursor: currentPage >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
+              fontSize: '0.875rem'
+            }}
+          >
+            Next
+          </button>
+        </div>
+      )}
       </>
     )
   }
