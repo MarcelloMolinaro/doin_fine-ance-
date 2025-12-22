@@ -338,44 +338,45 @@ function App() {
   }
 
   const getCategoryColor = (category) => {
-    // Pastel color mapping for categories - similar categories get similar colors
+    // Distinct pastel color mapping - each category gets a unique, easily distinguishable color
+    // Colors are evenly spaced across the color spectrum for maximum visual distinction
     const colorMap = {
-      // Food & Dining - Pastel reds/oranges
-      'Dining out': '#ffb3ba', // Pastel red
-      'Bars & Restaurants': '#ffcccb', // Light coral
-      'Groceries': '#bae1ff', // Pastel blue-green
-      'Coffee Shops': '#ffdfba', // Pastel peach
-      'Restaurants': '#ffcccb', // Light coral
+      // Food & Dining - Distinct warm tones
+      'Dining out': '#ffb3ba',        // Pastel red
+      'Bars & Restaurants': '#ff9a9e', // Coral
+      'Groceries': '#a8e6cf',         // Mint green
+      'Coffee Shops': '#ffd3a5',      // Peach
+      'Restaurants': '#ff8c94',       // Rose pink (more distinct from coral)
       
-      // Transportation - Pastel blues
-      'Transportation': '#bae1ff', // Pastel blue
-      'Gas': '#a8d8ea', // Soft blue
-      'Auto & Transport': '#c7e9f0', // Light blue
+      // Transportation - Distinct cool tones
+      'Transportation': '#a8d8ea',    // Sky blue
+      'Gas': '#6bb6ff',               // Bright blue (more distinct)
+      'Auto & Transport': '#b8e0d2',  // Seafoam green
       
-      // Housing - Pastel purples
-      'Rent': '#d4a5f5', // Pastel purple
-      'Home': '#e1bee7', // Light purple
+      // Housing - Distinct purples
+      'Rent': '#d4a5f5',              // Lavender
+      'Home': '#ba8fc8',              // Deeper purple (more distinct from lavender)
       
-      // Income & Finance - Pastel greens
-      'Income': '#b5e5cf', // Pastel green
-      'Interest': '#a8e6cf', // Soft green
-      'Credit fee': '#ffb3ba', // Pastel red (fees)
+      // Income & Finance - Distinct greens
+      'Income': '#b5e5cf',            // Pastel green
+      'Interest': '#7dd3a0',          // Emerald green (more distinct)
+      'Credit fee': '#ff6b9d',        // Pink-red
       
-      // Utilities & Bills - Pastel yellows/oranges
-      'Utilities': '#ffe4b5', // Pastel yellow
-      'Bills & Utilities': '#fff4e6', // Very light yellow
-      'Insurance': '#b0e0e6', // Powder blue
+      // Utilities & Bills - Distinct yellows/oranges
+      'Utilities': '#ffe4b5',         // Pastel yellow
+      'Bills & Utilities': '#ffd89b', // Light orange
+      'Insurance': '#87ceeb',          // Sky blue (moved from Travel)
       
-      // Shopping & Entertainment - Pastel pinks
-      'Shopping': '#ffc1cc', // Pastel pink
-      'Entertainment': '#ffd1dc', // Light pink
-      'Fun!™': '#ffb6c1', // Light pink
+      // Shopping & Entertainment - Distinct pinks/magentas
+      'Shopping': '#ffc1cc',          // Pastel pink
+      'Entertainment': '#ffa8d5',      // Magenta pink (more distinct)
+      'Fun!™': '#ff9ec5',              // Hot pink
       
-      // Other - Pastel cyan/browns
-      'Travel': '#b0e0e6', // Powder blue
-      'Lodging': '#d4a5f5', // Pastel purple
-      'Donation': '#d2b48c', // Tan
-      'Transfers': '#d3d3d3', // Light grey
+      // Other - Distinct colors
+      'Travel': '#b0e0e6',             // Powder blue (moved from Insurance)
+      'Lodging': '#e1bee7',            // Light purple
+      'Donation': '#d2b48c',           // Tan/brown
+      'Transfers': '#d3d3d3',           // Light grey
     }
     
     return colorMap[category] || '#e0e0e0' // Default light grey for unknown categories
@@ -514,6 +515,8 @@ function App() {
     const [categoryFilter, setCategoryFilter] = useState('')
     const [accountFilter, setAccountFilter] = useState('')
     const [availableCategories, setAvailableCategories] = useState([])
+    const [showNotes, setShowNotes] = useState(false)
+    const [notes, setNotes] = useState({})
 
     useEffect(() => {
       fetchValidatedTransactions()
@@ -534,6 +537,13 @@ function App() {
         
         const response = await axios.get(`${API_BASE_URL}/api/validated-transactions`, { params })
         setValidatedTransactions(response.data)
+        
+        // Initialize notes state from fetched transactions
+        const initialNotes = {}
+        response.data.forEach(t => {
+          if (t.user_notes) initialNotes[t.transaction_id] = t.user_notes
+        })
+        setNotes(initialNotes)
       } catch (err) {
         setError(`Failed to load validated transactions: ${err.message}`)
         console.error(err)
@@ -590,6 +600,23 @@ function App() {
       return sortOrder === 'asc' ? '↑' : '↓'
     }
 
+    const handleNotesUpdate = async (transactionId, newNotes) => {
+      // Always update local state
+      setNotes({ ...notes, [transactionId]: newNotes || null })
+      
+      // Since these are validated transactions, save to DB immediately
+      try {
+        setError(null)
+        await axios.put(
+          `${API_BASE_URL}/api/transactions/${transactionId}/notes`,
+          { notes: newNotes || null }
+        )
+      } catch (err) {
+        console.log('Notes update failed:', err.message)
+        setError(`Failed to update notes: ${err.message}`)
+      }
+    }
+
     return (
       <div className="placeholder-page">
         <div className="header">
@@ -599,6 +626,25 @@ function App() {
 
         {error && (
           <div className="error">{error}</div>
+        )}
+
+        {showNotes && (
+          <div style={{ marginTop: '10px', marginBottom: '10px' }}>
+            <button
+              onClick={() => setShowNotes(false)}
+              style={{
+                background: 'none',
+                border: '1px solid #ced4da',
+                color: '#495057',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                padding: '6px 12px',
+                borderRadius: '4px'
+              }}
+            >
+              Hide Notes Column
+            </button>
+          </div>
         )}
 
         <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -650,7 +696,7 @@ function App() {
               <thead>
                 <tr>
                   <th 
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    style={{ cursor: 'pointer', userSelect: 'none', width: '150px' }}
                     onClick={() => handleSort('transacted_date')}
                   >
                     Date {getSortIcon('transacted_date')}
@@ -679,7 +725,25 @@ function App() {
                   >
                     Category {getSortIcon('master_category')}
                   </th>
-                  <th>Notes</th>
+                  {showNotes && <th style={{ width: '150px' }}>Notes</th>}
+                  {!showNotes && (
+                    <th style={{ width: '40px', textAlign: 'center' }}>
+                      <button
+                        onClick={() => setShowNotes(true)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#6c757d',
+                          cursor: 'pointer',
+                          fontSize: '0.875rem',
+                          padding: '4px 8px'
+                        }}
+                        title="Show notes column"
+                      >
+                        + Notes
+                      </button>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -709,7 +773,25 @@ function App() {
                         <span style={{ color: '#6c757d' }}>-</span>
                       )}
                     </td>
-                    <td>{transaction.user_notes || '-'}</td>
+                    {showNotes && (
+                      <td>
+                        <input
+                          type="text"
+                          placeholder="Add note..."
+                          value={notes[transaction.transaction_id] || ''}
+                          onChange={(e) => {
+                            const newNotes = { ...notes, [transaction.transaction_id]: e.target.value }
+                            setNotes(newNotes)
+                          }}
+                          onBlur={(e) => {
+                            handleNotesUpdate(transaction.transaction_id, e.target.value)
+                          }}
+                          className="notes-input"
+                          style={{ width: '100%', padding: '4px 8px', border: '1px solid #ced4da', borderRadius: '4px' }}
+                        />
+                      </td>
+                    )}
+                    {!showNotes && <td></td>}
                   </tr>
                 ))}
               </tbody>

@@ -3,7 +3,7 @@
 ## Short Term
 - [ ] Create a config file for the most configgy things
 - [ ] Update the Readme (contains a bunch of old instructions)
-- [ ] Add Errors form the Simplefin API so the user knows when they run it that it didn't work for which accounts- include instructions
+- [ ] Add Errors from the Simplefin API so the user knows when they run it that it didn't work for which accounts- include instructions
 - [ ] Add a Databricks source integration and test end-to-end
 - [ ] Add remaining Allegra sources (Chase Allegra, Mntn 1)
 - [ ] Remove bloat/tech debt in all of my code
