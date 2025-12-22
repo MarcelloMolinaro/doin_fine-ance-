@@ -286,6 +286,31 @@ function App() {
     setSelectedTransactions(new Set())
   }
 
+  const handleRefreshValidatedTrxns = async () => {
+    // Confirmation popup
+    if (!window.confirm("You Sure Dawg?")) {
+      return
+    }
+
+    try {
+      setRefreshingValidated(true)
+      setError(null)
+      setSuccess(null)
+
+      const response = await axios.post(`${API_BASE_URL}/api/transactions/trigger-refresh-validated`)
+      
+      if (response.data.success) {
+        setSuccess(`Dagster job triggered successfully! Run ID: ${response.data.run_id}`)
+      } else {
+        setError(response.data.message || 'Failed to trigger refresh')
+      }
+    } catch (err) {
+      setError(`Failed to trigger refresh: ${err.response?.data?.detail || err.message}`)
+      console.error(err)
+    } finally {
+      setRefreshingValidated(false)
+    }
+  }
 
   const formatAmount = (amount) => {
     if (!amount) return '-'
@@ -313,47 +338,47 @@ function App() {
   }
 
   const getCategoryColor = (category) => {
-    // Color mapping for categories - similar categories get similar colors
+    // Pastel color mapping for categories - similar categories get similar colors
     const colorMap = {
-      // Food & Dining
-      'Dining out': '#e74c3c', // Red
-      'Bars & Restaurants': '#c0392b', // Dark red
-      'Groceries': '#27ae60', // Green
-      'Coffee Shops': '#d35400', // Orange
-      'Restaurants': '#e67e22', // Light orange
+      // Food & Dining - Pastel reds/oranges
+      'Dining out': '#ffb3ba', // Pastel red
+      'Bars & Restaurants': '#ffcccb', // Light coral
+      'Groceries': '#bae1ff', // Pastel blue-green
+      'Coffee Shops': '#ffdfba', // Pastel peach
+      'Restaurants': '#ffcccb', // Light coral
       
-      // Transportation
-      'Transportation': '#3498db', // Blue
-      'Gas': '#2980b9', // Dark blue
-      'Auto & Transport': '#5dade2', // Light blue
+      // Transportation - Pastel blues
+      'Transportation': '#bae1ff', // Pastel blue
+      'Gas': '#a8d8ea', // Soft blue
+      'Auto & Transport': '#c7e9f0', // Light blue
       
-      // Housing
-      'Rent': '#9b59b6', // Purple
-      'Home': '#8e44ad', // Dark purple
+      // Housing - Pastel purples
+      'Rent': '#d4a5f5', // Pastel purple
+      'Home': '#e1bee7', // Light purple
       
-      // Income & Finance
-      'Income': '#2ecc71', // Bright green
-      'Interest': '#1e8449', // Dark green
-      'Credit fee': '#e74c3c', // Red (fees)
+      // Income & Finance - Pastel greens
+      'Income': '#b5e5cf', // Pastel green
+      'Interest': '#a8e6cf', // Soft green
+      'Credit fee': '#ffb3ba', // Pastel red (fees)
       
-      // Utilities & Bills
-      'Utilities': '#f39c12', // Yellow/orange
-      'Bills & Utilities': '#f1c40f', // Yellow
-      'Insurance': '#16a085', // Teal
+      // Utilities & Bills - Pastel yellows/oranges
+      'Utilities': '#ffe4b5', // Pastel yellow
+      'Bills & Utilities': '#fff4e6', // Very light yellow
+      'Insurance': '#b0e0e6', // Powder blue
       
-      // Shopping & Entertainment
-      'Shopping': '#e91e63', // Pink
-      'Entertainment': '#ec407a', // Light pink
-      'Fun!™': '#ad1457', // Dark pink
+      // Shopping & Entertainment - Pastel pinks
+      'Shopping': '#ffc1cc', // Pastel pink
+      'Entertainment': '#ffd1dc', // Light pink
+      'Fun!™': '#ffb6c1', // Light pink
       
-      // Other
-      'Travel': '#00bcd4', // Cyan
-      'Lodging': '#0097a7', // Dark cyan
-      'Donation': '#795548', // Brown
-      'Transfers': '#607d8b', // Blue grey
+      // Other - Pastel cyan/browns
+      'Travel': '#b0e0e6', // Powder blue
+      'Lodging': '#d4a5f5', // Pastel purple
+      'Donation': '#d2b48c', // Tan
+      'Transfers': '#d3d3d3', // Light grey
     }
     
-    return colorMap[category] || '#6c757d' // Default grey for unknown categories
+    return colorMap[category] || '#e0e0e0' // Default light grey for unknown categories
   }
 
   const getPredictedCategoryDisplay = (transaction) => {
@@ -365,7 +390,7 @@ function App() {
           className="category-badge category-predicted" 
           style={{
             backgroundColor: categoryColor,
-            color: 'white',
+            color: '#2c3e50', // Dark text on pastel background
             padding: '4px 8px',
             borderRadius: '4px',
             fontSize: '0.875rem',
@@ -666,7 +691,18 @@ function App() {
                     <td>{formatAmount(transaction.amount)}</td>
                     <td>
                       {transaction.master_category ? (
-                        <span className="category-badge category-confident">
+                        <span 
+                          className="category-badge category-confident"
+                          style={{
+                            backgroundColor: getCategoryColor(transaction.master_category),
+                            color: '#2c3e50', // Dark text on pastel background
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '0.875rem',
+                            fontWeight: '500',
+                            display: 'inline-block'
+                          }}
+                        >
                           {transaction.master_category}
                         </span>
                       ) : (
@@ -764,6 +800,31 @@ function App() {
                 </button>
               )}
             </div>
+            {viewMode === 'validated' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleRefreshValidatedTrxns}
+                  disabled={refreshingValidated}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: refreshingValidated ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    opacity: refreshingValidated ? 0.6 : 1
+                  }}
+                >
+                  {refreshingValidated ? 'Refreshing...' : 'Refresh Validated'}
+                </button>
+                <span style={{ color: '#dc3545', fontSize: '0.75rem', fontWeight: '500' }}>
+                  ⚠️ NOT reversible
+                </span>
+              </div>
+            )}
             {totalCount > 0 && (
               <span style={{ color: '#495057', fontSize: '0.875rem' }}>
                 Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalCount)} of {totalCount} transactions
