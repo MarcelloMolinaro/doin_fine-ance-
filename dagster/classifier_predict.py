@@ -115,7 +115,8 @@ def predict_transaction_categories(context: AssetExecutionContext, train_transac
     prediction_probas = classifier.predict_proba(X)
     max_probas = prediction_probas.max(axis=1)
     
-    # Apply confidence threshold for high precision (only predict if >60% confident)
+    # Apply confidence threshold for high precision (only predict if >=45% confident)
+    # Predictions below this threshold are marked as 'UNCERTAIN'
     confidence_threshold = 0.45
     high_confidence_mask = max_probas >= confidence_threshold
     
