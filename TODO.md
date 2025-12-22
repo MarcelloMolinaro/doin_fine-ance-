@@ -5,18 +5,22 @@
   - [x] Add recommended Features to Add
   - [x] Test running the prediction.py!
 - [x] Build Python models to pull data from SimpleFIN
-  - [ ] Resolve all to-do's in the simplefin_api.py doc
-- [ ] Enable dbt <> dagster connection so I don't need to define each source? I haven't built any of this out yet
+  - [x] Resolve all to-do's in the simplefin_api.py doc
+- [x] Enable dbt <> dagster connection so I don't need to define each source? I haven't built any of this out yet
 - [ ] Add a Databricks source integration and test end-to-end
-- [ ] Stop truncating source tables and start inserting/appending (especially finance data!)
-  - [ ] create a qualify statement that only takes the most recent data and handles dupes!
-- [ ] Add remaining sources (Chase Marcello, Chase Allegra, Mntn 1)
-- [ ] Figure out how to exclude Simplefin data that I have validated AND is in fct_validated_trxns from the UI ... Maybe switch the uncategorized source to the master model?
+- [x] Stop truncating source tables and start inserting/appending (especially finance data!)
+  - [x] create a qualify statement that only takes the most recent data and handles dupes!
+- [x] Add remaining Marcello sources (Chase Marcello)
+- [ ] Add remaining Allegra sources (Chase Allegra, Mntn 1)
+- [ ] Remove bloat/tech debt in all of my code
+- [ ] Figure out why the job I created doesn't update the dbt assets in the dag that reference the same models? Is there a way to do that?
+- [ ] Make the prediction ML much better!
+- [ ] Allow the user to re-train the model from the Model Details page?
 
 ## Long Term
 - [ ] What's up with the .user.yml file? untrack that?
-- [ ] learn about ML classifiers? Why are we using random forest here? What is Vecorized text?
-  - [ ] Check out Ian's documents to see if they have good explaination
+- [ ] Learn about ML classifiers? Why are we using random forest here? What is Vectorized text?
+  - [ ] Check out Ian's documents to see if they have good explanation
 
 ## Done  Won't Do!
 - [x] Delete committed artifacts/logs and tighten `.gitignore`
@@ -32,7 +36,7 @@
 
 ## ML Transaction Categorization Pipeline
 
-### Step 3.1 Recommended Features to Add
+### Step 3.1 Recommended Features to Add (for ML improvements)
 A. Transaction Date Features (recommended)
   Day of week (0-6)
   Month (1-12)
@@ -45,8 +49,6 @@ B. Amount Derived Features (recommended)
 C. Source Category (if available)
   Include source_category in text features if it exists.
   Why: Historic data already has category hints.
-  Implementation Location:
-  Add after line 69 (after combined_text) and before line 71 (before preparing X_text). Then scale/encode these features and concatenate them.
 
 
 ### Step 3: Train Model on Historical Data
@@ -73,7 +75,7 @@ C. Source Category (if available)
   - [x] Handle confidence thresholds (currently 0.45)
   - [x] Track model version used for each prediction
 
-#### Current Status & Issues (as of Dec 16 2024):
+#### Current Status & Issues (as of Dec 22 2024):
 **Model Performance:**
 - ✅ Precision: HIGH (80%) - predictions are accurate when made
 - ❌ Recall: LOW (55%) - missing many transactions
@@ -89,80 +91,18 @@ C. Source Category (if available)
   - Create view/table that combines original transactions with predictions
   - Add logic to surface high-confidence predictions vs uncertain ones
   - Create summary tables by category, confidence level, date, etc.
-- [ ] **Build ability to surface the data** (UI/dashboard)
-  - Streamlit app or similar to review predictions
-  - Filter by confidence level, category, date range
-  - Allow manual corrections and feedback loop to retrain
 
 ### Step 5: UI for Review & Editing
-- [ ] Build Streamlit app (recommended) or alternative UI
-  - Display transactions with predictions
-  - Filter by: low confidence, uncategorized, date range, etc.
-  - Allow editing/correcting categories
-  - Save corrections back to DB
-  - "Retrain model" button that triggers Dagster job
-  - Show model performance metrics
+- [x] Build React UI for transaction categorization
+  - [x] Display transactions with predictions
+  - [x] Filter by: low confidence, uncategorized, date range, description
+  - [x] Allow editing/correcting categories
+  - [x] Save corrections back to DB
+  - [x] Bulk actions (select all, validate selected)
+  - [x] Pagination
+  - [x] Color-coded categories
+  - [x] "All Data" tab for viewing validated transactions
+  - [x] "Refresh Validated Transactions" button (triggers Dagster job)
+  - [ ] "Retrain model" button that triggers Dagster job (from Model Details page)
+  - [ ] Show model performance metrics on Model Details page
 
-### Classifier Strategy
-
-**1. Clean + Vectorize Transaction Text**
-
-Use only features that generalize well:
-- Merchant name
-- Description text
-- MCC code (if available)
-- Amount (optional, but helpful)
-
-Turn text into embeddings using either:
-- **Simple**: TF-IDF
-- **Better**: Sentence embeddings (e.g., miniLM, all-mpnet)
-
-**2. Train a Lightweight Classifier**
-
-**Option A (simple + very effective):**
-- k-NN classifier on embeddings
-- No training cost
-- Very interpretable (closest example transactions)
-- Gives you a "confidence score" = distance to nearest neighbors
-
-**Option B:**
-- Logistic Regression or Linear SVM on TF-IDF
-- Fast
-- High accuracy if text patterns are stable
-- Probabilities give you prediction score
-
-**Option C:**
-- Small neural model finetuned on your embeddings
-- Best for large datasets
-- Typically overkill for personal finance apps
-
-**3. Generate "Predictive Score"**
-
-Use one of:
-- k-NN → inverse distance to nearest neighbors
-- Logistic Regression → predict_proba
-- SVM → convert margin to pseudo-probability (Platt scaling)
-- For embeddings → cosine similarity to closest labeled transaction
-
-Return it as confidence: e.g., 0–1.
-
-**4. Validate Model**
-
-Split your labeled transactions:
-- Train: 80%
-- Test: 20%
-
-Compute:
-- Accuracy
-- Macro F1 (good if classes are imbalanced)
-- Confusion matrix (shows which categories get mixed up)
-- Calibration curve (checks whether your confidence scores are meaningful)
-
-If very imbalanced, use stratified sampling.
-
-**🔥 Quick Recommended Path (simple + effective):**
-1. Compute sentence embeddings for all transactions
-2. Fit a k-NN classifier
-3. Predict new transaction category
-4. Confidence = cosine similarity to the nearest labeled example
-5. Evaluate via accuracy + F1 on a held-out set
