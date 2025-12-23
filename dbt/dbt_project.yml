@@ -2,3 +2,8 @@ name: dagster_dbt_project
 version: '1.0'
 profile: dagster_dbt
 model-paths: ["models"]
+
+seeds:
+  dagster_dbt_project:
+    historic_transactions_example:
+      enabled: false
