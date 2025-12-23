@@ -1,9 +1,11 @@
 # TODOs
 
 ## Short Term
+- [ ] Add Errors from the Simplefin API so the user knows when they run it that it didn't work for which accounts- include instructions
+- [ ] Make a Job per-task required in Dagster (refresh validated (done), train models, run predict model, run pull data, load data and update data (full dbt or partial pipeline))
+  - [ ] split out the training/prediction assets from the refresh validated trxns job (upstream includes them) (Or should I??) - It'll take longer to run, but would result in automatic transfer upon successful categorization from Unpredicted to predicted??
 - [ ] Create a config file for the most configgy things
 - [ ] Update the Readme (contains a bunch of old instructions)
-- [ ] Add Errors from the Simplefin API so the user knows when they run it that it didn't work for which accounts- include instructions
 - [ ] Add a Databricks source integration and test end-to-end
 - [ ] Add remaining Allegra sources (Chase Allegra, Mntn 1)
 - [ ] Remove bloat/tech debt in all of my code
