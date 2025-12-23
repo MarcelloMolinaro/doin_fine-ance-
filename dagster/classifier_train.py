@@ -5,7 +5,7 @@ Trains a machine learning model to categorize financial transactions based on
 merchant name, description, amount, and other features.
 """
 
-from dagster import asset, AssetExecutionContext
+from dagster import asset, AssetExecutionContext, AssetKey
 import pandas as pd
 from sqlalchemy import create_engine, text
 import numpy as np
@@ -38,20 +38,21 @@ def create_model_storage_path():
 
 
 @asset(
-    description="Train a classifier model to categorize transactions based on historical data"
+    description="Train a classifier model to categorize transactions based on historical data",
+    deps=[AssetKey(["fct_validated_trxns"])]
 )
-def train_transaction_classifier(context: AssetExecutionContext, run_dbt):
+def train_transaction_classifier(context: AssetExecutionContext):
     """
     Train a transaction classifier model.
     
-    Reads labeled transactions from dbt (excluding uncategorized ones),
+    Reads validated transactions from dbt (user-validated and historic validated),
     performs feature engineering, trains a classifier, evaluates it,
     and saves the model artifact.
     """
     engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
     
-    # Read only categorized transactions for training, filter out rows with null amounts
-    query_categorized = text("SELECT * FROM analytics.fct_trxns_categorized")
+    # Read validated transactions for training, filter out rows with null amounts
+    query_categorized = text("SELECT * FROM analytics.fct_validated_trxns")
     df_train = pd.read_sql(query_categorized, engine)
     df_train = df_train[df_train['amount'].notna()].copy()
     
