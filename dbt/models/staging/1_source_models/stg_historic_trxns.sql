@@ -35,7 +35,8 @@ source as ( select * from {{ ref('historic_transactions') }} )
             when account_name = 'Joint_amex'     then 'Joint'
             when account_name = 'A_PastExpenses' then 'Allegra'
             when account_name = 'M_PastExpenses' then 'Marcello'
-        end as owner_name
+        end as owner_name,
+        row_number() over (order by transaction_date) as original_row_number
     from source
 )
 
@@ -47,7 +48,8 @@ source as ( select * from {{ ref('historic_transactions') }} )
         (coalesce(account_name, '') || '|' || 
          coalesce(amount::text, '') || '|' || 
          coalesce(transaction_date::text, '') || '|' || 
-         coalesce(description, '')) as transaction_id,  
+         coalesce(description, '') || '|' || 
+         coalesce(original_row_number::text, '')) as transaction_id,  
         null::text                             as account_id,
         account_name::text                     as original_account_name,
         mapped_account_name::text              as account_name,
