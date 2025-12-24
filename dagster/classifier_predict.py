@@ -15,8 +15,9 @@ from datetime import datetime
 
 @asset(
     description="Predict categories for uncategorized transactions using the trained model"
+    
 )
-def predict_transaction_categories(context: AssetExecutionContext, train_transaction_classifier):
+def predict_transaction_categories(context: AssetExecutionContext, load_to_postgres, train_transaction_classifier):
     """
     Predict categories for uncategorized transactions.
     

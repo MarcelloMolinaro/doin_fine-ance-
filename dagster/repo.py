@@ -88,12 +88,15 @@ refresh_validated_trxns_job = define_asset_job(
     ),
 )
 
-refresh_validated_trxns_job = define_asset_job(
-    name="refresh_validated_trxns",
+
+ingest_and_predict_job = define_asset_job(
+    name="ingest_and_predict",
     selection=(
-        AssetSelection.keys("fct_validated_trxns")
+        AssetSelection.keys("simplefin_financial_data")
         .downstream()
-        | AssetSelection.keys("fct_validated_trxns")
+        # | AssetSelection.keys("load_to_postgres")
+        # | AssetSelection.keys("predict_transaction_categories")
+        # | AssetSelection.keys("fct_trxns_with_predictions") # converted to view
     ),
 )
 
@@ -117,5 +120,6 @@ definitions = Definitions(
     },
     jobs=[
         refresh_validated_trxns_job,
+        ingest_and_predict_job,
     ],
 )
