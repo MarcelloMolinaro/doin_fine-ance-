@@ -15,7 +15,7 @@ function App() {
   const [notes, setNotes] = useState({})
   const [validated, setValidated] = useState({})
   const [selectedTransactions, setSelectedTransactions] = useState(new Set()) // New: selection state (separate from validation)
-  const [activeTab, setActiveTab] = useState('transactions') // 'transactions', 'model-details', 'all-data'
+  const [activeTab, setActiveTab] = useState('control-center') // 'control-center', 'transactions', 'model-details', 'all-data'
   const [viewMode, setViewMode] = useState('unvalidated_predicted') // 'unvalidated_predicted', 'unvalidated_unpredicted', 'validated'
   const [validatingAll, setValidatingAll] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
@@ -24,6 +24,10 @@ function App() {
   const [descriptionFilter, setDescriptionFilter] = useState('')
   const [totalCount, setTotalCount] = useState(0)
   const [refreshingValidated, setRefreshingValidated] = useState(false)
+  const [triggeringIngest, setTriggeringIngest] = useState(false)
+  const [warnings, setWarnings] = useState([])
+  const [loadingWarnings, setLoadingWarnings] = useState(true)
+  const [warningsError, setWarningsError] = useState(null)
 
   useEffect(() => {
     setCurrentPage(1) // Reset to first page when view mode changes
@@ -34,6 +38,26 @@ function App() {
     fetchTransactions()
     fetchCategories()
   }, [viewMode, currentPage, descriptionFilter])
+
+  const fetchWarnings = async () => {
+    try {
+      setLoadingWarnings(true)
+      setWarningsError(null)
+      const response = await axios.get(`${API_BASE_URL}/api/control-center/simplefin-warnings`)
+      setWarnings(response.data.warnings || [])
+    } catch (err) {
+      setWarningsError(`Failed to load warnings: ${err.message}`)
+      console.error(err)
+    } finally {
+      setLoadingWarnings(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'control-center') {
+      fetchWarnings()
+    }
+  }, [activeTab])
 
   const fetchTransactions = async () => {
     try {
@@ -193,7 +217,7 @@ function App() {
           { notes: newNotes || null }
         )
       } catch (err) {
-        console.log('Notes update failed:', err.message)
+        // Silently fail - notes update is non-critical
       }
     }
     // Otherwise notes are stored in local state only and will be saved when validated
@@ -309,6 +333,35 @@ function App() {
       console.error(err)
     } finally {
       setRefreshingValidated(false)
+    }
+  }
+
+  const handleTriggerIngestAndPredict = async () => {
+    if (!window.confirm("Trigger ingest and predict job? This will fetch new transactions and generate predictions.")) {
+      return
+    }
+
+    try {
+      setTriggeringIngest(true)
+      setError(null)
+      setSuccess(null)
+
+      const response = await axios.post(`${API_BASE_URL}/api/control-center/trigger-ingest-and-predict`)
+      
+      if (response.data.success) {
+        setSuccess(`Dagster job triggered successfully! Run ID: ${response.data.run_id}`)
+        // Refresh warnings after a short delay to see new run
+        setTimeout(() => {
+          fetchWarnings()
+        }, 2000)
+      } else {
+        setError(response.data.message || 'Failed to trigger job')
+      }
+    } catch (err) {
+      setError(`Failed to trigger job: ${err.response?.data?.detail || err.message}`)
+      console.error(err)
+    } finally {
+      setTriggeringIngest(false)
     }
   }
 
@@ -428,6 +481,23 @@ function App() {
     return (
       <div className="tabs" style={{ display: 'flex', gap: '0', borderBottom: '2px solid #dee2e6', marginBottom: '20px' }}>
         <button
+          className={`tab-button ${activeTab === 'control-center' ? 'active' : ''}`}
+          onClick={() => setActiveTab('control-center')}
+          style={{
+            padding: '12px 24px',
+            border: 'none',
+            borderBottom: activeTab === 'control-center' ? '2px solid #007bff' : '2px solid transparent',
+            background: 'none',
+            cursor: 'pointer',
+            color: activeTab === 'control-center' ? '#007bff' : '#495057',
+            fontWeight: activeTab === 'control-center' ? '600' : '400',
+            fontSize: '0.95rem',
+            marginBottom: '-2px'
+          }}
+        >
+          Control Center
+        </button>
+        <button
           className={`tab-button ${activeTab === 'transactions' ? 'active' : ''}`}
           onClick={() => setActiveTab('transactions')}
           style={{
@@ -478,6 +548,190 @@ function App() {
         >
           All Data
         </button>
+      </div>
+    )
+  }
+
+  // Control Center Page Component
+  const ControlCenterPage = () => {
+
+    const formatTimestamp = (timestamp) => {
+      if (!timestamp) return 'Unknown time'
+      try {
+        // Dagster timestamps are in milliseconds as strings, convert to number
+        const timestampNum = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp
+        const date = new Date(timestampNum)
+        
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+          return 'Unknown time'
+        }
+        
+        return date.toLocaleString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      } catch {
+        return 'Unknown time'
+      }
+    }
+
+    return (
+      <div className="placeholder-page">
+        <div className="header">
+          <h1>Control Center</h1>
+          <p>Manage data ingestion and monitor system status.</p>
+        </div>
+
+        {/* Job Trigger Section */}
+        <div style={{ 
+          background: 'white', 
+          padding: '30px', 
+          borderRadius: '8px', 
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+          marginBottom: '30px'
+        }}>
+          <h2 style={{ marginTop: 0, marginBottom: '15px', fontSize: '1.5rem' }}>Data Ingestion</h2>
+          <p style={{ color: '#6c757d', marginBottom: '20px' }}>
+            Trigger the ingest and predict job to fetch new transactions from SimpleFIN and generate category predictions.
+          </p>
+          
+          {error && (
+            <div className="error" style={{ marginBottom: '15px' }}>{error}</div>
+          )}
+          
+          {success && (
+            <div className="success" style={{ marginBottom: '15px' }}>{success}</div>
+          )}
+
+          <button
+            className="btn btn-primary"
+            onClick={handleTriggerIngestAndPredict}
+            disabled={triggeringIngest}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: triggeringIngest ? 'not-allowed' : 'pointer',
+              fontSize: '1rem',
+              fontWeight: '500',
+              opacity: triggeringIngest ? 0.6 : 1
+            }}
+          >
+            {triggeringIngest ? 'Triggering Job...' : 'Run Ingest & Predict Job'}
+          </button>
+        </div>
+
+        {/* Connection Error Instructions Section */}
+        <div style={{ 
+          background: 'white', 
+          padding: '30px', 
+          borderRadius: '8px', 
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+          marginBottom: '30px'
+        }}>
+          <h2 style={{ marginTop: 0, fontSize: '1.5rem', marginBottom: '15px' }}>Connection Error Instructions</h2>
+          <div style={{ 
+            padding: '20px', 
+            backgroundColor: '#f8f9fa', 
+            borderRadius: '4px',
+            border: '1px solid #dee2e6'
+          }}>
+            <p style={{ color: '#495057', margin: 0, lineHeight: '1.6' }}>
+              If you see any Connection Errors - navigate to your SimpleFIN account page and reconnect to the accounts with errors: <a href="https://beta-bridge.simplefin.org/my-account" target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'underline' }}>https://beta-bridge.simplefin.org/my-account</a> and then rerun this job.
+            </p>
+          </div>
+        </div>
+
+        {/* Warnings Section */}
+        <div style={{ 
+          background: 'white', 
+          padding: '30px', 
+          borderRadius: '8px', 
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+          marginBottom: '30px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2 style={{ marginTop: 0, fontSize: '1.5rem' }}>SimpleFIN Warnings</h2>
+            <button
+              onClick={fetchWarnings}
+              disabled={loadingWarnings}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: loadingWarnings ? 'not-allowed' : 'pointer',
+                fontSize: '0.875rem',
+                opacity: loadingWarnings ? 0.6 : 1
+              }}
+            >
+              {loadingWarnings ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+
+          {warningsError && (
+            <div className="error" style={{ marginBottom: '15px' }}>{warningsError}</div>
+          )}
+
+          {loadingWarnings ? (
+            <div className="loading" style={{ padding: '20px' }}>Loading warnings...</div>
+          ) : warnings.length === 0 ? (
+            <div style={{ 
+              padding: '20px', 
+              textAlign: 'center', 
+              color: '#6c757d',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '4px'
+            }}>
+              <p style={{ margin: 0 }}>✅ No warnings found. All systems operational.</p>
+            </div>
+          ) : (
+            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+              {warnings.map((warning, index) => (
+                <div
+                  key={index}
+                  style={{
+                    padding: '15px',
+                    marginBottom: '10px',
+                    backgroundColor: '#fff3cd',
+                    border: '1px solid #ffc107',
+                    borderRadius: '4px',
+                    borderLeft: '4px solid #ffc107'
+                  }}
+                >
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'flex-start',
+                    marginBottom: '8px'
+                  }}>
+                    <div style={{ fontWeight: '500', color: '#856404' }}>
+                      ⚠️ Warning
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>
+                      {formatTimestamp(warning.timestamp)}
+                    </div>
+                  </div>
+                  <div style={{ color: '#856404', fontSize: '0.95rem' }}>
+                    {warning.message}
+                  </div>
+                  {warning.run_id && (
+                    <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '8px' }}>
+                      Run ID: {warning.run_id}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     )
   }
@@ -612,7 +866,6 @@ function App() {
           { notes: newNotes || null }
         )
       } catch (err) {
-        console.log('Notes update failed:', err.message)
         setError(`Failed to update notes: ${err.message}`)
       }
     }
@@ -1203,6 +1456,7 @@ function App() {
     <div className="container">
       {renderTabs()}
       
+      {activeTab === 'control-center' && <ControlCenterPage />}
       {activeTab === 'transactions' && <TransactionsPage />}
       {activeTab === 'model-details' && <ModelDetailsPage />}
       {activeTab === 'all-data' && <AllDataPage />}
