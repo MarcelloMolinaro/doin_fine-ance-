@@ -50,6 +50,15 @@ with source as (
             order by import_timestamp desc
         ) as unique__check
     from source
+    where 
+        description not ilike '%PREAUTHORIZED DEBIT CHASE CREDIT%' -- Wintrust Credit Payments
+        and description not ilike '%Chase Credit Card Transfer/Credit Card Payment%' -- Wintrust Debit Card Payments
+        and description not ilike '%AMEX EPAYMENT/ACH PMT%' -- Amlagamated Amex Payments
+        and description not ilike '%CHASE CREDIT CRD/AUTOPAY%' -- Amlagamated Chase Payments
+        and description not ilike '%AUTOPAY PAYMENT%' -- Amex Payments
+        and description not ilike '%ONLINE PAYMENT - THANK YOU%' -- Amex Payments
+        and description not ilike '%AUTOMATIC PAYMENT - THANK%' -- Chase Payments
+        and description not ilike '%Payment Thank You - Web%' -- Chase Payments
 
 )
 

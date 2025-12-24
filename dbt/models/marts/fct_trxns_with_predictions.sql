@@ -1,6 +1,7 @@
 {{ config(
-    materialized = 'table'
+    materialized = 'view'
 ) }}
+-- Convert back to view if too slow loading into UI
 
 with 
 
