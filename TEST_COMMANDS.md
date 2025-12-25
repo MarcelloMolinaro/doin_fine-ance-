@@ -49,7 +49,12 @@ docker exec -it dagster dbt run --project-dir /opt/dbt                          
 docker exec -it postgres psql -U dagster -d dagster -c "SELECT * FROM analytics.<your_model_name>;"  # verify results
 ```
 
----
+### Helpful dbt + Dagster commands
+```bash
+# recompile and restarts Dagster
+docker exec dagster dbt compile --project-dir /opt/dbt && docker compose restart dagster
+```
+
 
 ## 3. Testing the simplefin_api.py script
 
