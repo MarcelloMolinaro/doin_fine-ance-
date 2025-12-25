@@ -1,18 +1,27 @@
 # TODOs
 
 ## Short Term
-- [ ] Add Errors from the Simplefin API so the user knows when they run it that it didn't work for which accounts- include instructions
-- [x] Make a Job per-task required in Dagster (refresh validated (done), train models, run predict model, run pull data, load data and update data (full dbt or partial pipeline))
-  - [x] split out the training/prediction assets from the refresh validated trxns job (upstream includes them) (Or should I??) - It'll take longer to run, but would result in automatic transfer upon successful categorization from Unpredicted to predicted??
-- [ ] Exclude Autopayment credit card transactions etc. -like we do in gsheets - Do this in SQL
+- [ ] Add in historic data from 2025
+  - [ ] Need to figure out how to combine the new data with the hisotric csv?
+  - [ ] Train ML model after adding in this new data so I can retrain as we go.
+    account_name | Blue Cash Preferred®        | 2025-09-08
+    account_name | Chase Freedom Unlimited     | 2025-09-23
+    account_name | Junior Savers Savings       | 2025-06-30
+    account_name | ONLINE CHECKING-3633        | 2025-10-27
+    account_name | Student Checking            | 2025-07-25
+    account_name | United Explorer             | 2025-10-01
+    account_name | VISTA Personal Money Market | 2025-09-30
+    account_name | VISTA Premier Checking      | 2025-09-26
+
+- [ ] Make the prediction ML much better!
+- [ ] Build out the Model Details tab - Find out what informatio would be helpful to know?
+- [x] Exclude Autopayment credit card transactions etc. -like we do in gsheets - Do this in SQL
+  - Done in stg_simplefin
 - [ ] Create a config file for the most configgy things
 - [ ] Update the Readme (contains a bunch of old instructions)
 - [ ] Add a Databricks source integration and test end-to-end
-- [ ] Add remaining Allegra sources (Chase Allegra, Mntn 1)
 - [ ] Remove bloat/tech debt in all of my code
-- [x] Figure out why the job I created doesn't update the dbt assets in the dag that reference the same models? Is there a way to do that?
-- [ ] Make the prediction ML much better!
-- [x] Allow the user to re-train the model from the Model Details page? Model retrains on every validation
+- [ ] Consider make key referenced VIEW's tables - Would requiring adding dbt steps to button triggers
 
 ## Long Term
 - [ ] What's up with the .user.yml file? untrack that?
@@ -41,7 +50,4 @@
   - Add logic to surface high-confidence predictions vs uncertain ones
   - Create summary tables by category, confidence level, date, etc.
 
-### Step 5: UI for Review & Editing
-  - [x] "Retrain model" button that triggers Dagster job (from Model Details page)
-  - [ ] Show model performance metrics on Model Details page
 
