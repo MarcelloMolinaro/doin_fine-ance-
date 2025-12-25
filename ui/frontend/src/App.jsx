@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import axios from 'axios'
 import './index.css'
 
@@ -21,8 +21,11 @@ function App() {
   const [showNotes, setShowNotes] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize] = useState(100) // Records per page
-  const [descriptionFilter, setDescriptionFilter] = useState('')
+  const [descriptionFilterInput, setDescriptionFilterInput] = useState('') // What user is typing
+  const [descriptionFilter, setDescriptionFilter] = useState('') // Debounced value for API calls
   const [totalCount, setTotalCount] = useState(0)
+  const descriptionInputRef = useRef(null)
+  const shouldRestoreFocusRef = useRef(false)
   const [refreshingValidated, setRefreshingValidated] = useState(false)
   const [triggeringIngest, setTriggeringIngest] = useState(false)
   const [warnings, setWarnings] = useState([])
@@ -31,8 +34,22 @@ function App() {
 
   useEffect(() => {
     setCurrentPage(1) // Reset to first page when view mode changes
-    setDescriptionFilter('') // Reset filter when view mode changes
+    setDescriptionFilterInput('') // Reset filter input when view mode changes
+    setDescriptionFilter('') // Reset debounced filter when view mode changes
   }, [viewMode])
+
+  // Debounce the description filter input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDescriptionFilter(descriptionFilterInput)
+      // Only reset page if filter actually changed (not on initial mount)
+      if (descriptionFilterInput !== descriptionFilter) {
+        setCurrentPage(1)
+      }
+    }, 300) // Wait 300ms after user stops typing
+
+    return () => clearTimeout(timer)
+  }, [descriptionFilterInput, descriptionFilter])
 
   useEffect(() => {
     fetchTransactions()
@@ -166,15 +183,15 @@ function App() {
       // Use assigned category if exists, otherwise use predicted category
       const categoryToUse = assignedCategory || (predictedCategory && predictedCategory !== 'UNCERTAIN' ? predictedCategory : null)
       
-      if (!categoryToUse) {
+      if (!categoryToUse && newValidated) {
         setError('Please assign a category before validating')
         return
       }
 
-      // Only save to database when validating (setting to true)
-      if (newValidated) {
-        setUpdatingId(transactionId)
-        try {
+      setUpdatingId(transactionId)
+      try {
+        if (newValidated) {
+          // Validating - save to database
           await axios.post(
             `${API_BASE_URL}/api/transactions/${transactionId}/categorize`,
             {
@@ -187,15 +204,33 @@ function App() {
           
           setValidated({ ...validated, [transactionId]: true })
           setSuccess(`Transaction validated successfully!`)
+        } else {
+          // Unvalidating - update database to set validated to false
+          await axios.post(
+            `${API_BASE_URL}/api/transactions/${transactionId}/categorize`,
+            {
+              master_category: categoryToUse || transaction?.master_category,
+              source_category: null,
+              notes: notes[transactionId] || null,
+              validated: false
+            }
+          )
           
-          // Refresh to show it's now validated (will move to validated view)
-          await fetchTransactions()
-        } finally {
-          setUpdatingId(null)
+          setValidated({ ...validated, [transactionId]: false })
+          setSuccess(`Transaction unvalidated successfully!`)
+          
+          // Switch to appropriate tab based on prediction
+          if (predictedCategory && predictedCategory !== 'UNCERTAIN') {
+            setViewMode('unvalidated_predicted')
+          } else {
+            setViewMode('unvalidated_unpredicted')
+          }
         }
-      } else {
-        // Unvalidating - update local state only
-        setValidated({ ...validated, [transactionId]: false })
+        
+        // Refresh to show updated state
+        await fetchTransactions()
+      } finally {
+        setUpdatingId(null)
       }
     } catch (err) {
       setError(`Failed to update validation: ${err.message}`)
@@ -308,6 +343,20 @@ function App() {
 
   const handleDeselectAll = () => {
     setSelectedTransactions(new Set())
+  }
+
+  const handleBulkAssignCategory = (category) => {
+    if (!category || selectedTransactions.size === 0) {
+      return
+    }
+
+    // Update selectedCategory state for all selected transactions
+    const updatedSelectedCategory = { ...selectedCategory }
+    selectedTransactions.forEach(transactionId => {
+      updatedSelectedCategory[transactionId] = category
+    })
+    setSelectedCategory(updatedSelectedCategory)
+    setSuccess(`Assigned "${category}" to ${selectedTransactions.size} transaction(s)`)
   }
 
   const handleRefreshValidatedTrxns = async () => {
@@ -436,9 +485,43 @@ function App() {
   }
 
   const getPredictedCategoryDisplay = (transaction) => {
-    // Show predicted category if exists and not UNCERTAIN
-    if (transaction.predicted_master_category && transaction.predicted_master_category !== 'UNCERTAIN') {
-      const categoryColor = getCategoryColor(transaction.predicted_master_category)
+    const predictedCategory = transaction.predicted_master_category
+    const assignedCategory = selectedCategory[transaction.transaction_id] !== undefined 
+      ? selectedCategory[transaction.transaction_id] 
+      : (transaction.master_category || '')
+    
+    // For unvalidated transactions, show both predicted and assigned (if assigned)
+    if (viewMode !== 'validated' && assignedCategory) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {/* Show predicted category */}
+          {predictedCategory && predictedCategory !== 'UNCERTAIN' ? (
+            <span 
+              className="category-badge category-predicted" 
+              style={{
+                backgroundColor: getCategoryColor(predictedCategory),
+                color: '#2c3e50',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                display: 'inline-block'
+              }}
+            >
+              {predictedCategory}
+            </span>
+          ) : (
+            <span style={{ color: '#6c757d', fontStyle: 'italic', fontSize: '0.875rem' }}>No prediction</span>
+          )}
+          {/* Show assigned category badge */}
+          {getAssignedCategoryDisplay(transaction)}
+        </div>
+      )
+    }
+    
+    // For validated tab or when no assigned category, show just predicted
+    if (predictedCategory && predictedCategory !== 'UNCERTAIN') {
+      const categoryColor = getCategoryColor(predictedCategory)
       return (
         <span 
           className="category-badge category-predicted" 
@@ -452,12 +535,69 @@ function App() {
             display: 'inline-block'
           }}
         >
-          {transaction.predicted_master_category}
+          {predictedCategory}
         </span>
       )
     }
     // No category or UNCERTAIN
     return <span style={{ color: '#6c757d', fontStyle: 'italic' }}>No prediction</span>
+  }
+
+  const getAssignedCategoryDisplay = (transaction) => {
+    // Get the assigned category (user-selected or existing master_category)
+    const assignedCategory = selectedCategory[transaction.transaction_id] !== undefined 
+      ? selectedCategory[transaction.transaction_id] 
+      : (transaction.master_category || '')
+    
+    if (assignedCategory) {
+      const categoryColor = getCategoryColor(assignedCategory)
+      const isValidated = validated[transaction.transaction_id] || transaction.validated
+      const predictedCategory = transaction.predicted_master_category
+      const matchesPredicted = predictedCategory && 
+                                predictedCategory !== 'UNCERTAIN' && 
+                                predictedCategory === assignedCategory
+      
+      // If validated and matches predicted category, show simple badge (no special styling)
+      if (isValidated && matchesPredicted) {
+        return (
+          <span 
+            className="category-badge category-assigned" 
+            style={{
+              backgroundColor: categoryColor,
+              color: '#2c3e50', // Dark text on pastel background
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              display: 'inline-block'
+            }}
+          >
+            {assignedCategory}
+          </span>
+        )
+      }
+      
+      // Otherwise, show with special styling to indicate it's user-assigned
+      return (
+        <span 
+          className="category-badge category-assigned" 
+          style={{
+            backgroundColor: categoryColor,
+            color: '#2c3e50', // Dark text on pastel background
+            padding: '4px 8px',
+            borderRadius: '4px',
+            fontSize: '0.875rem',
+            fontWeight: '600', // Slightly bolder to distinguish from predicted
+            display: 'inline-block',
+            border: '2px solid #007bff', // Blue border to indicate it's assigned
+            boxShadow: '0 1px 3px rgba(0, 123, 255, 0.3)' // Subtle shadow for emphasis
+          }}
+        >
+          {assignedCategory}
+        </span>
+      )
+    }
+    return null
   }
 
   const getConfidenceDisplay = (transaction) => {
@@ -767,10 +907,20 @@ function App() {
     const [sortBy, setSortBy] = useState('transacted_date')
     const [sortOrder, setSortOrder] = useState('desc')
     const [categoryFilter, setCategoryFilter] = useState('')
-    const [accountFilter, setAccountFilter] = useState('')
+    const [accountFilterInput, setAccountFilterInput] = useState('') // What user is typing
+    const [accountFilter, setAccountFilter] = useState('') // Debounced value for API calls
     const [availableCategories, setAvailableCategories] = useState([])
     const [showNotes, setShowNotes] = useState(false)
     const [notes, setNotes] = useState({})
+
+    // Debounce the account filter input
+    useEffect(() => {
+      const timer = setTimeout(() => {
+        setAccountFilter(accountFilterInput)
+      }, 300) // Wait 300ms after user stops typing
+
+      return () => clearTimeout(timer)
+    }, [accountFilterInput])
 
     useEffect(() => {
       fetchValidatedTransactions()
@@ -920,16 +1070,17 @@ function App() {
             <input
               type="text"
               placeholder="Filter by account name..."
-              value={accountFilter}
-              onChange={(e) => setAccountFilter(e.target.value)}
+              value={accountFilterInput}
+              onChange={(e) => setAccountFilterInput(e.target.value)}
               style={{ padding: '6px 12px', border: '1px solid #ced4da', borderRadius: '4px', minWidth: '200px' }}
             />
           </div>
-          {(categoryFilter || accountFilter) && (
+          {(categoryFilter || accountFilterInput) && (
             <button
               className="btn btn-primary"
               onClick={() => {
                 setCategoryFilter('')
+                setAccountFilterInput('')
                 setAccountFilter('')
               }}
               style={{ marginLeft: '10px' }}
@@ -1101,12 +1252,25 @@ function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <label style={{ fontWeight: '500', whiteSpace: 'nowrap' }}>Search Description:</label>
               <input
+                ref={descriptionInputRef}
                 type="text"
                 placeholder="Filter by description..."
-                value={descriptionFilter}
+                value={descriptionFilterInput}
                 onChange={(e) => {
-                  setDescriptionFilter(e.target.value)
-                  setCurrentPage(1) // Reset to first page when searching
+                  const cursorPosition = e.target.selectionStart
+                  const wasFocused = document.activeElement === e.target
+                  shouldRestoreFocusRef.current = wasFocused
+                  setDescriptionFilterInput(e.target.value)
+                  // Use requestAnimationFrame to restore focus after React's render
+                  requestAnimationFrame(() => {
+                    if (descriptionInputRef.current && shouldRestoreFocusRef.current) {
+                      descriptionInputRef.current.focus()
+                      // Restore cursor position
+                      const newPosition = Math.min(cursorPosition, descriptionInputRef.current.value.length)
+                      descriptionInputRef.current.setSelectionRange(newPosition, newPosition)
+                      shouldRestoreFocusRef.current = false
+                    }
+                  })
                 }}
                 style={{
                   padding: '6px 12px',
@@ -1116,9 +1280,10 @@ function App() {
                   fontSize: '0.875rem'
                 }}
               />
-              {descriptionFilter && (
+              {descriptionFilterInput && (
                 <button
                   onClick={() => {
+                    setDescriptionFilterInput('')
                     setDescriptionFilter('')
                     setCurrentPage(1)
                   }}
@@ -1199,6 +1364,37 @@ function App() {
                     <span style={{ color: '#495057', fontWeight: '500' }}>
                       {selectedTransactions.size} selected
                     </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <label style={{ fontWeight: '500', whiteSpace: 'nowrap' }}>Assign Category:</label>
+                      <select
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleBulkAssignCategory(e.target.value)
+                            e.target.value = '' // Reset dropdown after selection
+                          }
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #ced4da',
+                          borderRadius: '4px',
+                          backgroundColor: 'white',
+                          cursor: 'pointer',
+                          fontSize: '0.875rem',
+                          minWidth: '180px'
+                        }}
+                      >
+                        <option value="">Select category...</option>
+                        {categories.length > 0 ? (
+                          categories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))
+                        ) : (
+                          <option disabled>No categories available</option>
+                        )}
+                      </select>
+                    </div>
                   </>
                 )}
                 <button
@@ -1302,7 +1498,7 @@ function App() {
                 <th>Description</th>
                 <th>Predicted Category</th>
                 <th>Amount</th>
-                <th>Assign Category</th>
+                <th>{viewMode === 'validated' ? 'Assigned Category' : 'Assign Category'}</th>
                 <th style={{ width: '200px' }}>Account</th>
                 <th style={{ width: '80px' }}>Confidence %</th>
                 {showNotes && <th style={{ width: '150px' }}>Notes</th>}
@@ -1354,33 +1550,60 @@ function App() {
                   <td>{getPredictedCategoryDisplay(transaction)}</td>
                   <td>{formatAmount(transaction.amount)}</td>
                   <td>
-                    <select
-                      className="category-select"
-                      value={selectedCategory[transaction.transaction_id] !== undefined 
-                        ? selectedCategory[transaction.transaction_id] 
-                        : (transaction.master_category || '')}
-                      onChange={(e) => {
-                        const category = e.target.value
-                        // Just update local state - don't save to DB until validated
-                        setSelectedCategory({
-                          ...selectedCategory,
-                          [transaction.transaction_id]: category
-                        })
-                      }}
-                      disabled={updatingId === transaction.transaction_id}
-                      style={{ width: '100%', minWidth: '180px' }}
-                    >
-                      <option value="">Select category...</option>
-                      {categories.length > 0 ? (
-                        categories.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))
-                      ) : (
-                        <option disabled>No categories available</option>
-                      )}
-                    </select>
+                    {viewMode === 'validated' ? (
+                      // On validated tab, just show the badge (read-only)
+                      <div>
+                        {getAssignedCategoryDisplay(transaction) || (
+                          <span style={{ color: '#6c757d', fontStyle: 'italic' }}>No category</span>
+                        )}
+                      </div>
+                    ) : (
+                      // On other tabs, show only dropdown (badge is in Predicted Category column)
+                      <select
+                        className="category-select"
+                        value={selectedCategory[transaction.transaction_id] !== undefined 
+                          ? selectedCategory[transaction.transaction_id] 
+                          : (transaction.master_category || '')}
+                        onChange={(e) => {
+                          const category = e.target.value
+                          // Just update local state - don't save to DB until validated
+                          setSelectedCategory({
+                            ...selectedCategory,
+                            [transaction.transaction_id]: category
+                          })
+                        }}
+                        disabled={updatingId === transaction.transaction_id}
+                        style={{ 
+                          width: '100%', 
+                          minWidth: '180px',
+                          border: (() => {
+                            const assignedCategory = selectedCategory[transaction.transaction_id] !== undefined 
+                              ? selectedCategory[transaction.transaction_id] 
+                              : (transaction.master_category || '')
+                            
+                            // If category is assigned, use green border
+                            if (assignedCategory) {
+                              return '2px solid #28a745'
+                            }
+                            // Default border
+                            return '1px solid #ced4da'
+                          })(),
+                          borderRadius: '4px',
+                          padding: '4px 8px'
+                        }}
+                      >
+                        <option value="">Select category...</option>
+                        {categories.length > 0 ? (
+                          categories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))
+                        ) : (
+                          <option disabled>No categories available</option>
+                        )}
+                      </select>
+                    )}
                   </td>
                   <td>{transaction.account_name || '-'}</td>
                   <td>{getConfidenceDisplay(transaction)}</td>
