@@ -27,11 +27,27 @@ with source as (
         account_name,
         case 
             when account_name = 'Junior Savers Savings' then 'Wintrust Savings'
-            when account_name = 'Student Checking' then 'Wintrust Checking'
-            when account_name = 'Blue Cash Preferred®' then 'Amex Shared'
-            when account_name = 'Chase Freedom Unlimited' then 'Chase Freedom - Marcello'
-            when account_name = 'United Explorer' then 'Chase United - Marcello'
-            when account_name = 'ONLINE CHECKING-3633' then 'Amalgamated'
+            when account_name = 'Student Checking'      then 'Wintrust Checking'
+            when account_name = 'Blue Cash Preferred®'  then 'Amex Shared'
+            when 
+                account_name = 'Chase Freedom Unlimited' and
+                account_id = 'ACT-79364eca-c58a-46c0-8ea2-a414114ab918'
+                then 'Chase Freedom - Marcello'
+            when
+                account_name = 'Chase Freedom Unlimited' and
+                account_id = 'ACT-12c50460-e546-4cfb-bd23-ca6edd934e44'
+                then 'Chase Freedom - Allegra'
+            when 
+                account_name = 'United Explorer' and
+                account_id = 'ACT-d58aec93-610a-4455-bfba-eb9983433ef9'
+                then 'Chase United - Marcello'
+            when
+                account_name = 'United Explorer' and
+                account_id = 'ACT-4557534a-64d3-44fb-9a29-bf41397d0f83'
+                then 'Chase United - Allegra'
+            when account_name = 'ONLINE CHECKING-3633'          then 'Amalgamated'
+            when account_name = 'VISTA Personal Money Market'   then 'Mountain One - Savings'
+            when account_name = 'VISTA Premier Checking'        then 'Mountain One - Checking'
             else 'Missing mapping! talk to marcello stg_simplefin.sql'
         end as mapped_account_name,
         institution_domain,
