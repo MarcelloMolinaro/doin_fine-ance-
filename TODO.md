@@ -5,7 +5,7 @@
   - [ ] Need to figure out how to combine the new data with the hisotric csv?
   - [ ] Train ML model after adding in this new data so I can retrain as we go.
     account_name | Blue Cash Preferred®        | 2025-09-08
-    account_name | Chase Freedom Unlimited     | 2025-09-23
+    account_name | Chase Freedom Unlimited (M)     | 2025-09-23
     account_name | Junior Savers Savings       | 2025-06-30
     account_name | ONLINE CHECKING-3633        | 2025-10-27
     account_name | Student Checking            | 2025-07-25
@@ -13,7 +13,23 @@
     account_name | VISTA Personal Money Market | 2025-09-30
     account_name | VISTA Premier Checking      | 2025-09-26
 
+
+      mapped_account_name   Last input historic | first_trxn 
+--------------------------+------------------------
+ Amalgamated              |  2/4/2025    2025-10-27  | Done
+ Amex Shared              |  02/03/2025  2025-09-08  | Done
+ Chase Freedom - Allegra  |  1/8/2025    2025-09-27  |
+ Chase United - Allegra   |  10/1/2024   2025-10-01  |
+ Chase Freedom - Marcello |  1/13/2025   2025-09-23  | Done
+ Chase United - Marcello  |  1/26/2025   2025-10-11  | Done
+ Chase Sapphire - Marcello | 1/26/2025   N/A.        | Done
+ Mountain One - Checking  |  2/3/2025    2025-09-26  |
+ Mountain One - Savings   |  2/3/2025    2025-09-30  |
+ Wintrust Checking        |  2/3/2025    2025-07-25  | Done
+ Wintrust Savings         |  2/3/2025    2025-06-30  | Done
+
 - [ ] Make the prediction ML much better!
+- [ ] How to leverage the built in AMEX categories? Can i get them via simplefin? explore.
 - [ ] Build out the Model Details tab - Find out what informatio would be helpful to know?
 - [x] Exclude Autopayment credit card transactions etc. -like we do in gsheets - Do this in SQL
   - Done in stg_simplefin
