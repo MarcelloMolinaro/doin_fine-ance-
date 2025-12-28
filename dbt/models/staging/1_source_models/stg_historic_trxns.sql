@@ -10,15 +10,29 @@ source as ( select * from {{ ref('historic_transactions') }} )
     select
         *,
         case 
-            when account_name = 'A_united'       then 'Chase United Explorer Credit Card'
-            when account_name = 'A_freedom'      then 'Chase Freedom Credit Card'
-            when account_name = 'A_mtn1'         then 'Mountain One Checking'
-            when account_name = 'M_freedom'      then 'Chase Freedom Premier Credit Card'
-            when account_name = 'M_wintrust'     then 'Wintrust Bank Checking'
-            when account_name = 'M_sapphire'     then 'Chase Sapphire Credit Card'
-            when account_name = 'M_united'       then 'Chase United Explorer Credit Card'
-            when account_name = 'Joint_amalg'    then 'Amalgamated Bank Checking'
-            when account_name = 'Joint_amex'     then 'American Express Joint Credit Card'
+            when account_name = 'A_united'       then 'Chase United - Allegra'
+            when account_name = 'A_freedom'      then 'Chase Freedom - Allegra'
+            when 
+                account_name = 'A_mtn1' 
+                and type_account_person_account = '7786' 
+                then 'Mountain One - Checking'
+            when 
+                account_name = 'A_mtn1' 
+                and type_account_person_account = '5133' 
+                then 'Mountain One - Savings'
+            when account_name = 'M_freedom'      then 'Chase Freedom - Marcello'
+            when 
+                account_name = 'M_wintrust'
+                and type_account_person_account = 'Student Checking'
+                then 'Wintrust Checking'
+            when 
+                account_name = 'M_wintrust'
+                and type_account_person_account = 'Junior Savers Savings'
+                then 'Wintrust Savings'
+            when account_name = 'M_sapphire'     then 'Chase Sapphire - Marcello'
+            when account_name = 'M_united'       then 'Chase United - Marcello'
+            when account_name = 'Joint_amalg'    then 'Amalgamated'
+            when account_name = 'Joint_amex'     then 'Amex Shared'
             when account_name = 'A_PastExpenses' then 'Historical Expenses Allegra'
             when account_name = 'M_PastExpenses' then 'Historical Expenses Marcello'
         end as mapped_account_name
