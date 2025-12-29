@@ -46,7 +46,7 @@ function App() {
       if (descriptionFilterInput !== descriptionFilter) {
         setCurrentPage(1)
       }
-    }, 300) // Wait 300ms after user stops typing
+    }, 600) // Wait 600ms after user stops typing
 
     return () => clearTimeout(timer)
   }, [descriptionFilterInput, descriptionFilter])
@@ -1529,7 +1529,23 @@ function App() {
                     <input
                       type="checkbox"
                       checked={selectedTransactions.has(transaction.transaction_id)}
-                      onChange={(e) => handleSelectTransaction(transaction.transaction_id, e.target.checked)}
+                      onChange={(e) => {
+                        // Only handle if not already handled by mousedown
+                        if (!e.target.dataset.handled) {
+                          handleSelectTransaction(transaction.transaction_id, e.target.checked)
+                        }
+                        delete e.target.dataset.handled
+                      }}
+                      onMouseDown={(e) => {
+                        // Prevent focus to avoid scroll when clicking
+                        if (!e.target.disabled) {
+                          e.preventDefault()
+                          // Manually toggle since we prevented default
+                          const newChecked = !e.target.checked
+                          e.target.dataset.handled = 'true'
+                          handleSelectTransaction(transaction.transaction_id, newChecked)
+                        }
+                      }}
                       disabled={updatingId === transaction.transaction_id}
                       style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                       title="Select transaction"
@@ -1539,7 +1555,23 @@ function App() {
                     <input
                       type="checkbox"
                       checked={validated[transaction.transaction_id] || false}
-                      onChange={(e) => handleValidateToggle(transaction.transaction_id, e.target.checked)}
+                      onChange={(e) => {
+                        // Only handle if not already handled by mousedown
+                        if (!e.target.dataset.handled) {
+                          handleValidateToggle(transaction.transaction_id, e.target.checked)
+                        }
+                        delete e.target.dataset.handled
+                      }}
+                      onMouseDown={(e) => {
+                        // Prevent focus to avoid scroll when clicking
+                        if (!e.target.disabled) {
+                          e.preventDefault()
+                          // Manually toggle since we prevented default
+                          const newChecked = !e.target.checked
+                          e.target.dataset.handled = 'true'
+                          handleValidateToggle(transaction.transaction_id, newChecked)
+                        }
+                      }}
                       disabled={updatingId === transaction.transaction_id}
                       style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                       title="Mark as validated"
