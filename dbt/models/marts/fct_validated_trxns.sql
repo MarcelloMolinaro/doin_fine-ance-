@@ -12,6 +12,7 @@ user_categories as (
     from {{ ref('stg_user_validated_categories') }} 
     {% if is_incremental() %}
     -- only bring in transactions we don't already have
+    -- Does NOT allow for updating existing transactions
     where transaction_id not in (
         select transaction_id from {{ this }} where transaction_id is not null
     )
