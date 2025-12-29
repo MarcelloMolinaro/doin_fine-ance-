@@ -9,6 +9,8 @@ from dagster import (
     Definitions,
     AssetSelection,
     define_asset_job,
+    Config,
+    RunConfig,
 )
 
 from dagster_dbt import (
@@ -66,13 +68,25 @@ dbt_resource = DbtCliResource(
 )
 
 
+class DbtModelsConfig(Config):
+    """Configuration for dbt models asset."""
+    full_refresh: bool = False
+
+
 @dbt_assets(manifest=DBT_MANIFEST_PATH)
-def dbt_models(context: AssetExecutionContext, dbt: DbtCliResource):
+def dbt_models(context: AssetExecutionContext, dbt: DbtCliResource, config: DbtModelsConfig):
     """
     Materializes all dbt models defined in the manifest.
     Each dbt model becomes a first-class Dagster asset.
+    
+    Config:
+        full_refresh: If True, runs dbt with --full-refresh flag for incremental models.
     """
-    yield from dbt.cli(["build"], context=context).stream()
+    dbt_args = ["build"]
+    if config.full_refresh:
+        dbt_args.append("--full-refresh")
+        context.log.info("Running dbt with --full-refresh flag")
+    yield from dbt.cli(dbt_args, context=context).stream()
 
 
 # -------------------------
@@ -88,19 +102,34 @@ refresh_validated_trxns_job = define_asset_job(
     ),
 )
 
+full_refresh_validated_trxns_job = define_asset_job(
+    name="full_refresh_validated_trxns",
+    selection=AssetSelection.keys("fct_validated_trxns"),
+    config=RunConfig(
+        ops={
+            "dbt_models": {
+                "config": {
+                    "full_refresh": True
+                }
+            }
+        }
+    ),
+)
+
 
 ingest_and_predict_job = define_asset_job(
     name="ingest_and_predict",
     selection=(
         AssetSelection.keys("simplefin_financial_data")
         .downstream()
-        # | AssetSelection.keys("load_to_postgres")
-        # | AssetSelection.keys("predict_transaction_categories")
-        # | AssetSelection.keys("fct_trxns_with_predictions") # converted to view
+        # "load_to_postgres" -> "predict_transaction_categories" --> fct_trxns_with_predictions"
     ),
 )
 
-
+run_all_dbt_models_job = define_asset_job(
+    name="run_all_dbt_models",
+    selection=AssetSelection.kind("dbt"),
+)
 
 
 # -------------------------
@@ -120,6 +149,8 @@ definitions = Definitions(
     },
     jobs=[
         refresh_validated_trxns_job,
+        full_refresh_validated_trxns_job,
         ingest_and_predict_job,
+        run_all_dbt_models_job,
     ],
 )
