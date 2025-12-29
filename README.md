@@ -121,6 +121,15 @@ GROUP BY account_name, institution_name
 ORDER BY institution_name, account_name;
 ```
 
+## Porting Your Configuration Data
+
+If you want to port over your current configuration of data to a new instance, you only need:
+
+1. **`public.user_categories` Postgres table** - Contains all your manual transaction categorizations
+2. **`historic_transactions.csv`** - Your historical transaction data
+
+The full refresh will grab your historic data and all of your categorizations will be stored in `public.user_categories`, ready to go!
+
 ## ML Transaction Classifier
 
 The project includes a machine learning classifier to automatically categorize financial transactions.
