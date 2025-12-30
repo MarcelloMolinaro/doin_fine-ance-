@@ -44,7 +44,7 @@ The SimpleFIN extractor connects to bank accounts and credit cards via SimpleFIN
    
    **⚠️ Security Warning**: Never commit credentials to git! Use a `.env` file instead.
    
-   Create a `.env` file in the project root (copy from `.env.example`):
+   Create a `.env` file in the project root (copy from `env.example`):
    ```bash
    SIMPLEFIN_ACCESS_URL=https://your_actual_username:your_actual_password@bridge.simplefin.org/simplefin
    ```
