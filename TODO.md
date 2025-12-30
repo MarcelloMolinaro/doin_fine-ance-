@@ -1,30 +1,24 @@
 # TODOs
 
 ## Short Term
-- [ ] Add a flow for "Import CSV" of historic transaction
-- [ ] Postgres - Bad = Pulling revelvant file; good = postgres DUMP
-- [x] Add ben to Github and allow for PR's
-- [ ] Tech debt: rename Jobs/refresh_validated_trxns to refresh_validated_trxns_pipeline
-
-- [ ] Add in historic data from 2025
-  - [ ] Need to figure out how to combine the new data with the hisotric csv?
-  - [ ] Train ML model after adding in this new data so I can retrain as we go.
-
-- [ ] Make the prediction ML much better!
-- [x] Map account name so that Historic data matches stg_simplefin (see All Data tab for non matching) - Do distinct on "account"
+- [ ] Train ML model after adding in this new data so I can retrain as we go.
 - [ ] Build out the Model Details tab - Find out what informatio would be helpful to know?
-- [x] Exclude Autopayment credit card transactions etc. -like we do in gsheets - Do this in SQL
-  - Done in stg_simplefin
 - [ ] Create a config file for the most configgy things
-- [ ] Update the Readme (contains a bunch of old instructions)
+  - [ ] Create account mapping seed and dbt_model
+  - [ ] Create list of transaction things to exclude (i.e. credit card payments)
 - [ ] Add a Databricks source integration and test end-to-end
 - [ ] Remove bloat/tech debt in all of my code
-- [ ] Consider make key referenced VIEW's tables - Would requiring adding dbt steps to button triggers
+- [ ] Consider make key referenced VIEW's -> tables - Would requiring adding dbt steps to button triggers
+- [ ] Postgres - Bad = Pulling revelvant file; good = postgres DUMP
+- [ ] Tech debt: rename Jobs/refresh_validated_trxns to refresh_validated_trxns_pipeline
+
 
 ## Long Term
 - [ ] What's up with the .user.yml file? untrack that?
 - [ ] Learn about ML classifiers? Why are we using random forest here? What is Vectorized text?
   - [ ] Check out Ian's documents to see if they have good explanation
+- [ ] Add a flow for "Import CSV" of historic transaction
+
 
 ## Will not/Can not do
 - [x] How to leverage the built in AMEX categories? Can i get them via simplefin? explore.
