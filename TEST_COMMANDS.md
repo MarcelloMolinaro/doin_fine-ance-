@@ -107,6 +107,11 @@ docker exec -it postgres psql -U dagster -d dagster -c "SELECT account_name, ins
 
 ## 6. Testing & Resetting the Incremental Validated Transactions Process
 
+```sql
+-- See the most recent transaction update from the UI
+select * from public.user_categories order by updated_at desc;
+```
+
 **Warning**: This removes all manual categorization you have done!
 
 ```sql
