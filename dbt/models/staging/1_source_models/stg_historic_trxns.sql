@@ -59,11 +59,13 @@ source as ( select * from {{ ref('historic_transactions') }} )
 
     select
         -- Create transaction_id from account_name | amount | transaction_date | description
-        (coalesce(account_name, '') || '|' || 
-         coalesce(amount::text, '') || '|' || 
-         coalesce(transaction_date::text, '') || '|' || 
-         coalesce(description, '') || '|' || 
-         coalesce(original_row_number::text, '')) as transaction_id,  
+        ('HIST_TRN_' ||
+        MD5(coalesce(account_name, '') ||
+        coalesce(amount::text, '') ||
+        coalesce(transaction_date::text, '') ||
+        coalesce(description, '') ||
+        coalesce(original_row_number::text, ''))
+        )::text                                as transaction_id,  
         null::text                             as account_id,
         account_name::text                     as original_account_name,
         mapped_account_name::text              as account_name,
