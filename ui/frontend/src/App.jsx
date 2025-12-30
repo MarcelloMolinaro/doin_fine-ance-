@@ -279,9 +279,15 @@ function App() {
       
       // Validate each selected transaction, using selected category or predicted category
       for (const transaction of transactionsToValidate) {
-        const assignedCategory = selectedCategory[transaction.transaction_id] || transaction.master_category
+        // Priority: user-assigned category > existing master_category > predicted category
+        const userAssignedCategory = selectedCategory[transaction.transaction_id]
+        const existingMasterCategory = transaction.master_category
         const predictedCategory = transaction.predicted_master_category
-        const categoryToUse = assignedCategory || (predictedCategory && predictedCategory !== 'UNCERTAIN' ? predictedCategory : null)
+        
+        // Use user-assigned if exists, otherwise existing master_category (if non-empty), otherwise predicted (if not UNCERTAIN)
+        const categoryToUse = userAssignedCategory || 
+                              (existingMasterCategory && typeof existingMasterCategory === 'string' && existingMasterCategory.trim() !== '' ? existingMasterCategory : null) ||
+                              (predictedCategory && predictedCategory !== 'UNCERTAIN' ? predictedCategory : null)
         
         if (categoryToUse) {
           try {
@@ -297,12 +303,67 @@ function App() {
             validatedCount++
           } catch (err) {
             console.error(`Failed to validate transaction ${transaction.transaction_id}:`, err)
+            if (err.response) {
+              console.error(`Response status: ${err.response.status}, data:`, err.response.data)
+            }
           }
+        } else {
+          console.warn(`Skipping transaction ${transaction.transaction_id} - no category available`)
         }
       }
 
       setSuccess(`Marked ${validatedCount} transactions as validated`)
       setSelectedTransactions(new Set()) // Clear selection after validation
+      await fetchTransactions()
+    } catch (err) {
+      setError(`Failed to validate transactions: ${err.message}`)
+      console.error(err)
+    } finally {
+      setValidatingAll(false)
+    }
+  }
+
+  const handleValidateAllAssigned = async () => {
+    try {
+      setValidatingAll(true)
+      setError(null)
+      setSuccess(null)
+
+      // Find all transactions with assigned categories
+      const transactionsWithCategories = transactions.filter(t => {
+        const assignedCategory = selectedCategory[t.transaction_id] || t.master_category
+        return assignedCategory && !validated[t.transaction_id]
+      })
+
+      if (transactionsWithCategories.length === 0) {
+        setError('No transactions with assigned categories to validate')
+        setValidatingAll(false)
+        return
+      }
+
+      let validatedCount = 0
+      
+      // Validate each transaction with an assigned category
+      for (const transaction of transactionsWithCategories) {
+        const assignedCategory = selectedCategory[transaction.transaction_id] || transaction.master_category
+        
+        try {
+          await axios.post(
+            `${API_BASE_URL}/api/transactions/${transaction.transaction_id}/categorize`,
+            {
+              master_category: assignedCategory,
+              source_category: null,
+              notes: notes[transaction.transaction_id] || null,
+              validated: true
+            }
+          )
+          validatedCount++
+        } catch (err) {
+          console.error(`Failed to validate transaction ${transaction.transaction_id}:`, err)
+        }
+      }
+
+      setSuccess(`Marked ${validatedCount} transactions as validated`)
       await fetchTransactions()
     } catch (err) {
       setError(`Failed to validate transactions: ${err.message}`)
@@ -1344,13 +1405,29 @@ function App() {
                     Select All Predicted ({transactions.filter(t => t.predicted_master_category && t.predicted_master_category !== 'UNCERTAIN' && !validated[t.transaction_id]).length})
                   </button>
                 ) : (
-                  <button
-                    className="btn btn-secondary"
-                    onClick={handleSelectAll}
-                    style={{ backgroundColor: '#6c757d', color: 'white' }}
-                  >
-                    Select All ({transactions.filter(t => !validated[t.transaction_id]).length})
-                  </button>
+                  <>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleSelectAll}
+                      style={{ backgroundColor: '#6c757d', color: 'white' }}
+                    >
+                      Select All ({transactions.filter(t => !validated[t.transaction_id]).length})
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleValidateAllAssigned}
+                      disabled={validatingAll || transactions.filter(t => {
+                        const assignedCategory = selectedCategory[t.transaction_id] || t.master_category
+                        return assignedCategory && !validated[t.transaction_id]
+                      }).length === 0}
+                      style={{ backgroundColor: '#28a745', color: 'white' }}
+                    >
+                      {validatingAll ? 'Validating...' : `Validate All Assigned (${transactions.filter(t => {
+                        const assignedCategory = selectedCategory[t.transaction_id] || t.master_category
+                        return assignedCategory && !validated[t.transaction_id]
+                      }).length})`}
+                    </button>
+                  </>
                 )}
                 {selectedTransactions.size > 0 && (
                   <>
@@ -1500,7 +1577,7 @@ function App() {
                 <th>Amount</th>
                 <th>{viewMode === 'validated' ? 'Assigned Category' : 'Assign Category'}</th>
                 <th style={{ width: '200px' }}>Account</th>
-                <th style={{ width: '80px' }}>Confidence %</th>
+                {viewMode === 'unvalidated_predicted' && <th style={{ width: '80px' }}>Confidence %</th>}
                 {showNotes && <th style={{ width: '150px' }}>Notes</th>}
                 {!showNotes && (
                   <th style={{ width: '40px', textAlign: 'center' }}>
@@ -1598,10 +1675,24 @@ function App() {
                           : (transaction.master_category || '')}
                         onChange={(e) => {
                           const category = e.target.value
+                          // Store scroll position before state update
+                          const scrollY = window.scrollY
+                          const scrollX = window.scrollX
+                          
+                          // Blur immediately to prevent focus-related scroll
+                          e.target.blur()
+                          
                           // Just update local state - don't save to DB until validated
                           setSelectedCategory({
                             ...selectedCategory,
                             [transaction.transaction_id]: category
+                          })
+                          
+                          // Restore scroll position after React render completes
+                          requestAnimationFrame(() => {
+                            requestAnimationFrame(() => {
+                              window.scrollTo(scrollX, scrollY)
+                            })
                           })
                         }}
                         disabled={updatingId === transaction.transaction_id}
@@ -1638,7 +1729,7 @@ function App() {
                     )}
                   </td>
                   <td>{transaction.account_name || '-'}</td>
-                  <td>{getConfidenceDisplay(transaction)}</td>
+                  {viewMode === 'unvalidated_predicted' && <td>{getConfidenceDisplay(transaction)}</td>}
                   {showNotes && (
                     <td>
                       <input

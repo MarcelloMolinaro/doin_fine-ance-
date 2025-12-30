@@ -51,15 +51,6 @@ def list_transactions(
     return result
 
 
-@router.get("/{transaction_id}", response_model=TransactionResponse)
-def get_transaction(transaction_id: str, db: Session = Depends(get_db)):
-    """Get a single transaction by ID."""
-    transaction = get_transaction_by_id(db, transaction_id)
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    return transaction
-
-
 @router.post("/{transaction_id}/categorize", response_model=CategorizeResponse)
 def categorize_transaction_endpoint(
     transaction_id: str,
