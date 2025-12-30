@@ -26,20 +26,7 @@ docker exec -it postgres psql -U dagster -d dagster -c "SELECT * FROM test_persi
 
 ---
 
-## 2. Test dbt Project (after data is in Postgres)
-
-### Load test data into Postgres first
-```bash
-docker exec -it dagster python3 -c "
-import pandas as pd
-from sqlalchemy import create_engine
-engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
-pd.DataFrame({'id': [1,2,3], 'value': [10,20,30]}).to_sql('source1', engine, if_exists='replace', index=False)
-pd.DataFrame({'id': [1,2,3], 'score': [5,7,8]}).to_sql('source2', engine, if_exists='replace', index=False)
-pd.DataFrame({'id': [1,2,3], 'category': ['A','B','A']}).to_sql('source3', engine, if_exists='replace', index=False)
-print('Data loaded')
-"
-```
+## 2. Test dbt Project
 
 ### Helpful dbt and Postgres commands
 ```bash
@@ -75,7 +62,7 @@ Open: http://localhost:3000
 ### Or trigger via CLI (if needed)
 ```bash
 # Materialize specific assets (use --select with comma-separated asset names)
-docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select source1,source2,source3,load_to_postgres,run_dbt
+docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select simplefin_financial_data,load_to_postgres,dbt_models
 
 # Or use the workspace (if configured)
 docker exec dagster dagster-webserver -h 0.0.0.0 -p 3000 -w /opt/dagster/app/workspace.yaml
@@ -84,27 +71,51 @@ docker exec dagster dagster-webserver -h 0.0.0.0 -p 3000 -w /opt/dagster/app/wor
 
 ### Train and predict with classifier
 ```bash
-# Train the classifier (requires run_dbt to complete first)
+# Train the classifier (requires dbt_models to complete first)
 docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select train_transaction_classifier
 
 # Predict categories for uncategorized transactions
 docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select predict_transaction_categories
 
 # Or run the full pipeline including classifier
-docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select simplefin_financial_data,load_to_postgres,run_dbt,train_transaction_classifier,predict_transaction_categories
+docker exec dagster dagster asset materialize -f /opt/dagster/app/repo.py --select simplefin_financial_data,load_to_postgres,dbt_models,train_transaction_classifier,predict_transaction_categories
 ```
 
 **Note:** The easiest way to materialize assets is via the Dagster UI at http://localhost:3000. Navigate to Assets and click "Materialize" on the asset you want to run.
 
+## 5. Check SimpleFIN Data
 
-### For testing the incremental load process
+### Query to check current data ranges
+```sql
+SELECT 
+    account_name, 
+    institution_name, 
+    MIN(transacted_date) as earliest_date, 
+    MAX(transacted_date) as latest_date, 
+    COUNT(*) as transaction_count,
+    (MAX(transacted_date) - MIN(transacted_date)) as date_range_days
+FROM public.simplefin 
+WHERE transacted_date IS NOT NULL 
+GROUP BY account_name, institution_name 
+ORDER BY institution_name, account_name;
+```
+
+Run via:
+```bash
+docker exec -it postgres psql -U dagster -d dagster -c "SELECT account_name, institution_name, MIN(transacted_date) as earliest_date, MAX(transacted_date) as latest_date, COUNT(*) as transaction_count, (MAX(transacted_date) - MIN(transacted_date)) as date_range_days FROM public.simplefin WHERE transacted_date IS NOT NULL GROUP BY account_name, institution_name ORDER BY institution_name, account_name;"
+```
+
+## 6. Testing & Resetting the Incremental Validated Transactions Process
+
+**Warning**: This removes all manual categorization you have done!
 
 ```sql
 -- Cleans up Categorization tables -- Nothing shows as "validated"
 TRUNCATE TABLE public.user_categories;
+```
 
+**Warning**: After running this and re-materializing your fct_validated_trxns model using the http://localhost:3000/locations/repo.py/jobs/full_refresh_validated_trxns job, you will only have categorized transaction that were in your user_categories table and your historic data.
+```sql
 -- Removes all data from the validated table
--- Must run the table first in --Full-Refresh after truncating all records
 TRUNCATE TABLE analytics.fct_validated_trxns;
-
 ```

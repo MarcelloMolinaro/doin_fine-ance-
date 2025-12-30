@@ -3,7 +3,7 @@
 ## Quick Start Commands
 
 ```bash
-# 1. Rebuild the container to install dagster-dbt
+# 1. Rebuild just the container for dagster (dagster = ptional)
 docker compose build dagster
 
 # 2. Start everything
@@ -16,13 +16,18 @@ docker exec dagster dbt compile --project-dir /opt/dbt
 docker compose restart dagster
 ```
 
-## What Changed
+## How It Works
 
-1. **Dockerfile**: Added `dagster-dbt` to pip install
-2. **repo.py**: Added integration code that:
-   - Loads all dbt models as Dagster assets automatically
-   - Requires `manifest.json` to be generated first (via `dbt compile`)
-   - Falls back gracefully if manifest doesn't exist
+The integration automatically:
+- Loads all dbt models as Dagster assets
+- Requires `manifest.json` to be generated first (via `dbt compile`)
+- Uses `dbt build` to run models and tests
+- repo.py file contains dagster jobs and dbt configurations
+- If you make any changes to dbt models, you must recompile and restart
+```bash
+# recompile and restarts Dagster
+docker exec dagster dbt compile --project-dir /opt/dbt && docker compose restart dagster
+```
 
 ## Verification
 
@@ -39,13 +44,19 @@ docker compose restart dagster
 
 ## Running Full-Refresh on Incremental Models
 
-To run an incremental dbt model with `--full-refresh`:
+This pipeline has one incremental model: `fct_validated_trxns`. To run it with `--full-refresh`:
 
-### Option 1: Via Dagster UI - Materialize Asset (Recommended)
+### Option 1: Via Dagster UI - Use the Full-Refresh Job (Recommended)
+1. Go to the Jobs page in Dagster UI (http://localhost:3000)
+2. Find the `full_refresh_validated_trxns` job
+3. Click on the job and go to the Launchpad
+4. Click "Launch Run" to execute (pre-configured for full-refresh)
+
+### Option 2: Via Dagster UI - Materialize Asset
 1. Go to the asset graph in Dagster UI (http://localhost:3000)
-2. Find and select the incremental model asset you want to refresh (e.g., `fct_validated_trxns`, `int_trxns`)
-3. Click "Materialize" button
-4. In the config panel that appears, add the following config in the **`ops`** section:
+2. Find and select the `fct_validated_trxns` asset
+3. Shift + click "Materialize" button
+4. In the config panel, add the following config in the **`ops`** section:
    ```yaml
    ops:
      dbt_models:
@@ -54,48 +65,7 @@ To run an incremental dbt model with `--full-refresh`:
    ```
 5. Click "Materialize" to run with full-refresh
 
-**Important**: The `full_refresh` config goes under `ops.dbt_models.config`, NOT under `resources.dbt.config`. The `resources` section is for configuring the `DbtCliResource` itself (project_dir, profiles_dir, etc.), while `ops` config is for the asset function that uses the resource.
-
-**Note**: The `full_refresh` config applies to all selected dbt models. Since you're selecting just one model, it will only affect that model.
-
-### Option 2: Via Dagster UI - Use the Full-Refresh Job
-1. Go to the Jobs page in Dagster UI (http://localhost:3000)
-2. Find the `full_refresh_validated_trxns` job
-3. Click on the job and go to the Launchpad
-4. The job is pre-configured to run `fct_validated_trxns` with full-refresh
-5. Click "Launch Run" to execute
-
-**Note**: When running the job, you'll need to provide the config in the Launchpad:
-   ```yaml
-   ops:
-     dbt_models:
-       config:
-         full_refresh: true
-   ```
-
-### Option 3: Via CLI
-```bash
-docker exec dagster dagster asset materialize \
-  --select <your_model_name> \
-  -f /opt/dagster/app/repo.py \
-  -c '{"ops": {"dbt_models": {"config": {"full_refresh": true}}}}'
-```
-
-**Example**: To run `fct_validated_trxns` with full-refresh:
-```bash
-docker exec dagster dagster asset materialize \
-  --select fct_validated_trxns \
-  -f /opt/dagster/app/repo.py \
-  -c '{"ops": {"dbt_models": {"config": {"full_refresh": true}}}}'
-```
-
-**Or run the job via CLI:**
-```bash
-docker exec dagster dagster job execute \
-  -f /opt/dagster/app/repo.py \
-  -j full_refresh_validated_trxns \
-  -c '{"ops": {"dbt_models": {"config": {"full_refresh": true}}}}'
-```
+**Note**: You can also run via CLI if you prefer. The `full_refresh` config goes under `ops.dbt_models.config`.
 
 ## Workflow: Adding or Editing dbt Models
 
@@ -123,5 +93,4 @@ docker compose restart dagster
 ## Notes
 
 - The manifest is in `dbt/target/manifest.json` (gitignored)
-- The integration uses `dbt run` by default (you can change to `dbt build` in repo.py if you want tests)
-- Your existing `run_dbt` asset still works as a fallback
+- The integration uses `dbt build` by default (runs models and tests)
