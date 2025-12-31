@@ -56,11 +56,11 @@ with source as (
         ) as unique__check
     from source
     left join account_mapping
-        on source.account_name = account_mapping.account_name
+        on source.account_name::text = account_mapping.account_name::text
         and (
             account_mapping.account_id is null
-            or account_mapping.account_id = ''
-            or source.account_id = account_mapping.account_id
+            or account_mapping.account_id::text = ''
+            or source.account_id::text = account_mapping.account_id::text
         )
     where not exists (
         select 1

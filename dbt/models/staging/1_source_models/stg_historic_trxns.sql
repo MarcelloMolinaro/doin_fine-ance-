@@ -29,8 +29,8 @@ source as ( select * from {{ ref('historic_transactions') }} )
         on source.account_name = account_mapping.account_name
         and (
             account_mapping.additional_account_info is null
-            or account_mapping.additional_account_info = ''
-            or source.additional_account_detail::text = account_mapping.additional_account_info
+            or account_mapping.additional_account_info::text = ''
+            or source.additional_account_detail::text = account_mapping.additional_account_info::text
         )
 )
 
