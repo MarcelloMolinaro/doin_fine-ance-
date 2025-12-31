@@ -5,5 +5,10 @@ model-paths: ["models"]
 
 seeds:
   dagster_dbt_project:
-    historic_transactions_example:
-      enabled: false
+    examples:
+      historic_transactions_example:
+        enabled: false
+      seed_account_mapping_simplefin_example:
+        enabled: false
+      seed_account_mapping_historic_example:
+        enabled: false

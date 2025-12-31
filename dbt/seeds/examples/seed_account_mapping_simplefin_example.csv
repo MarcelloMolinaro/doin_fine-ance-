@@ -1,0 +1,7 @@
+account_name,account_id,mapped_account_name
+Checking Account,,My Checking Account
+Savings Account,,My Savings Account
+Credit Card,,My Credit Card
+Credit Card,ACT-xxxxx-xxxxx-xxxxx-xxxxx,Credit Card - Account Owner 1
+Credit Card,ACT-yyyyy-yyyyy-yyyyy-yyyyy,Credit Card - Account Owner 2
+

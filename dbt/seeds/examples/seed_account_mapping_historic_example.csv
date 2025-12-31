@@ -1,0 +1,7 @@
+account_name,additional_account_info,mapped_account_name,owner_name
+checking_account,,My Checking Account,Owner Name
+savings_account,,My Savings Account,Owner Name
+credit_card,,My Credit Card,Owner Name
+ambiguous_account,Checking,Checking Account - Specific,Owner Name
+ambiguous_account,Savings,Savings Account - Specific,Owner Name
+
