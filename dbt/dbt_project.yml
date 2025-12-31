@@ -12,3 +12,5 @@ seeds:
         enabled: false
       seed_account_mapping_historic_example:
         enabled: false
+      seed_transaction_exclusions_example:
+        enabled: false

@@ -10,6 +10,10 @@ with source as (
     select * from {{ ref('seed_account_mapping_simplefin') }}
 )
 
+, transaction_exclusions as (
+    select pattern from {{ ref('seed_transaction_exclusions') }}
+)
+
 -- Remove this eventually - Example record:
 -- | TRN-9dfa4f94-01a6-4187-91a9-33ab3fa8c6ed
 -- | ACT-df9d25cf-18fa-4b53-b07a-e901c5976179
@@ -58,15 +62,11 @@ with source as (
             or account_mapping.account_id = ''
             or source.account_id = account_mapping.account_id
         )
-    where 
-        source.description not ilike '%PREAUTHORIZED DEBIT CHASE CREDIT%' -- Wintrust Credit Payments
-        and source.description not ilike '%Chase Credit Card Transfer/Credit Card Payment%' -- Wintrust Debit Card Payments
-        and source.description not ilike '%AMEX EPAYMENT/ACH PMT%' -- Amlagamated Amex Payments
-        and source.description not ilike '%CHASE CREDIT CRD/AUTOPAY%' -- Amlagamated Chase Payments
-        and source.description not ilike '%AUTOPAY PAYMENT%' -- Amex Payments
-        and source.description not ilike '%ONLINE PAYMENT - THANK YOU%' -- Amex Payments
-        and source.description not ilike '%AUTOMATIC PAYMENT - THANK%' -- Chase Payments
-        and source.description not ilike '%Payment Thank You - Web%' -- Chase Payments
+    where not exists (
+        select 1
+        from transaction_exclusions
+        where source.description ilike transaction_exclusions.pattern
+    )
 
 )
 

@@ -1,0 +1,20 @@
+# Configuration file for Dagster Finance Pipeline
+# Copy this file to config.yaml and customize with your transaction exclusions
+# DO NOT commit config.yaml to git if it contains sensitive information
+#
+# Note: Account mappings are now managed via dbt seed files:
+#   - dbt/seeds/seed_account_mapping_simplefin.csv
+#   - dbt/seeds/seed_account_mapping_historic.csv
+
+# Transaction Description Exclusions
+# Transactions matching these patterns will be excluded from processing
+# These are typically credit card payments, transfers, or other non-transactional items
+transaction_exclusions:
+  # Description patterns to exclude (case-insensitive)
+  # Uses SQL ILIKE pattern matching (supports % wildcards)
+  description_patterns:
+    - "%Credit Card Payment%"
+    - "%AUTOPAY PAYMENT%"
+    - "%Transfer%"
+    # Add more patterns as needed
+

@@ -76,8 +76,62 @@ To port your configuration to a new instance, you only need:
 
 1. **`public.user_categories` Postgres table** - Contains all manual transaction categorizations
 2. **`historic_transactions.csv`** - Your historical transaction data
+3. **Account mapping seed files** - `seed_account_mapping_simplefin.csv` and `seed_account_mapping_historic.csv`
 
 The full refresh will grab your historic data and all categorizations will be stored in `public.user_categories`.
+
+## Account Mappings
+
+**⚠️ Required**: The pipeline requires account mapping seed files to function. These files map raw account names from your financial institutions to standardized account names.
+
+### Setup
+
+1. **Copy the example files** from `dbt/seeds/examples/` to create your mapping files:
+   ```bash
+   cp dbt/seeds/examples/seed_account_mapping_simplefin_example.csv dbt/seeds/seed_account_mapping_simplefin.csv
+   cp dbt/seeds/examples/seed_account_mapping_historic_example.csv dbt/seeds/seed_account_mapping_historic.csv
+   cp dbt/seeds/examples/seed_transaction_exclusions_example.csv dbt/seeds/seed_transaction_exclusions.csv
+   ```
+
+2. **Customize the mapping files** with your account information:
+   - **SimpleFIN mappings** (`seed_account_mapping_simplefin.csv`): Maps SimpleFIN account names (and optional account IDs) to your standardized names
+   - **Historic mappings** (`seed_account_mapping_historic.csv`): Maps historic transaction account names (and optional additional fields) to standardized names
+   - **Transaction exclusions** (`seed_transaction_exclusions.csv`): Patterns to exclude from processing (e.g., credit card payments). Currently managed manually - see TODO.md for future sync script from `config.yaml`
+
+3. **Load the seeds** into your database:
+   Either locally or materializing in dagster
+   ```bash
+   dbt seed
+   ```
+
+**Note**: The mapping seed files are git-ignored to keep your personal account information private. The example files in `dbt/seeds/examples/` are provided as templates and are disabled from loading into dagster/dbt.
+
+## Configuration
+
+The pipeline uses a `config.yaml` file to manage transaction exclusion rules.
+
+### Initial Setup
+
+1. **Copy the example configuration**:
+   ```bash
+   cp config.example.yaml config.yaml
+   ```
+
+2. **Customize `config.yaml`** with your transaction exclusion patterns:
+   - **Transaction Exclusions**: Add patterns to exclude transactions (e.g., credit card payments, transfers)
+     - Uses SQL `ILIKE` pattern matching (supports `%` wildcards)
+
+### Transaction Exclusions
+
+Add patterns to exclude non-transactional items like credit card payments:
+```yaml
+transaction_exclusions:
+  description_patterns:
+    - "%Credit Card Payment%"
+    - "%AUTOPAY PAYMENT%"
+```
+
+**Note**: `config.yaml` is git-ignored to keep your personal configuration private.
 
 ## ML Transaction Classifier
 
