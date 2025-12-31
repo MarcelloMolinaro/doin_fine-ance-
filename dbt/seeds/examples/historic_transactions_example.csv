@@ -1,4 +1,4 @@
-transaction_date,description,amount,account_name,source_category,additional_account_info,master_category,input_date
+transaction_date,description,amount,account_name,source_category,additional_account_detail,master_category,input_date
 6/1/2024,tip at Lenny's,-8,cash,Alcohol & Bars,,Bars & Restaurants,1/1/2025
 6/1/2024,thanks for cake Hortense!,25.00,Venmo,,cash,Income,2/1/2025
 6/1/2024,rent,-1000.00,WellsFargoSucks,,bank,Rent,2/1/2025
