@@ -31,7 +31,13 @@ class ValidatedTransactionResponse(BaseModel):
         from_attributes = True
 
 
-@router.get("", response_model=List[ValidatedTransactionResponse])
+class ValidatedTransactionsResponse(BaseModel):
+    """Response schema for validated transactions with total count."""
+    transactions: List[ValidatedTransactionResponse]
+    total_count: int
+
+
+@router.get("", response_model=ValidatedTransactionsResponse)
 def list_validated_transactions(
     limit: int = Query(100, ge=1, le=10000),
     offset: int = Query(0, ge=0),
@@ -39,6 +45,7 @@ def list_validated_transactions(
     sort_order: str = Query("desc", description="Sort order: 'asc' or 'desc'"),
     category: Optional[str] = Query(None, description="Filter by master_category"),
     account_name_filter: Optional[str] = Query(None, description="Filter by account_name (partial match)"),
+    description_search: Optional[str] = Query(None, description="Search filter for description field"),
     db: Session = Depends(get_db)
 ):
     """Get list of validated transactions with optional filtering and sorting."""
@@ -65,12 +72,23 @@ def list_validated_transactions(
         conditions.append("account_name ILIKE :account_filter")
         params["account_filter"] = f"%{account_name_filter}%"
     
+    if description_search:
+        conditions.append("description ILIKE :description_search")
+        params["description_search"] = f"%{description_search}%"
+    
     # Always filter out NULL transaction_ids (they shouldn't exist but handle gracefully)
     base_conditions = ["transaction_id IS NOT NULL"]
     if conditions:
         base_conditions.extend(conditions)
     
     where_clause = " AND ".join(base_conditions)
+    
+    # First, get total count
+    count_query_str = f"""
+        SELECT COUNT(*) as total
+        FROM analytics.fct_validated_trxns
+        WHERE {where_clause}
+    """
     
     # Build query - using f-string for ORDER BY is safe since we validate sort_column
     query_str = f"""
@@ -95,6 +113,12 @@ def list_validated_transactions(
     params["offset"] = offset
     
     try:
+        # Get total count
+        count_query = text(count_query_str)
+        count_result = db.execute(count_query, params)
+        total_count = count_result.scalar() or 0
+        
+        # Get paginated results
         query = text(query_str)
         result = db.execute(query, params)
         
@@ -114,7 +138,10 @@ def list_validated_transactions(
                 user_notes=getattr(row, 'user_notes', None)
             ))
         
-        return transactions
+        return ValidatedTransactionsResponse(
+            transactions=transactions,
+            total_count=total_count
+        )
     except Exception as e:
         # Log the full error for debugging
         import traceback
