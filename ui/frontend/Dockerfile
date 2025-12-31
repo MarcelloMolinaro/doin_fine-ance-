@@ -14,5 +14,6 @@ COPY . .
 # Expose port
 EXPOSE 5173
 
-# Run dev server
-CMD ["npm", "run", "dev"]
+# Install dependencies on startup (handles volume mount overwriting node_modules)
+# Then start the dev server
+CMD sh -c "npm install && npm run dev"

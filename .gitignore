@@ -41,8 +41,14 @@ dbt/.user.yml
 .env.local
 docker-compose.override.yml
 
+# Configuration files (personal account mappings)
+config.yaml
+
 # dbt seeds - actual data files (example files are checked in)
 dbt/seeds/historic_transactions.csv
+dbt/seeds/seed_account_mapping_simplefin.csv
+dbt/seeds/seed_account_mapping_historic.csv
+dbt/seeds/seed_transaction_exclusions.csv
 
 # ML model artifacts
 dagster/models/

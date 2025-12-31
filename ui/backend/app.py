@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.transactions import router as transactions_router
 from api.validated_transactions import router as validated_transactions_router
 from api.control_center import router as control_center_router
+from api.model_metrics import router as model_metrics_router
 from db.connection import engine
 from models.transaction import Base
 
@@ -30,6 +31,7 @@ app.add_middleware(
 app.include_router(transactions_router)
 app.include_router(validated_transactions_router)
 app.include_router(control_center_router)
+app.include_router(model_metrics_router)
 
 
 @app.get("/")

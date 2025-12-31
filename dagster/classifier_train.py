@@ -18,6 +18,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
+    precision_score,
+    recall_score,
     confusion_matrix,
     classification_report
 )
@@ -203,10 +205,18 @@ def train_transaction_classifier(context: AssetExecutionContext):
     accuracy = accuracy_score(y_test, y_pred)
     macro_f1 = f1_score(y_test, y_pred, average='macro')
     weighted_f1 = f1_score(y_test, y_pred, average='weighted')
+    macro_precision = precision_score(y_test, y_pred, average='macro', zero_division=0)
+    macro_recall = recall_score(y_test, y_pred, average='macro', zero_division=0)
+    weighted_precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+    weighted_recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
     
     context.log.info(f"Test Accuracy: {accuracy:.4f}")
     context.log.info(f"Test Macro F1: {macro_f1:.4f}")
     context.log.info(f"Test Weighted F1: {weighted_f1:.4f}")
+    context.log.info(f"Test Macro Precision: {macro_precision:.4f}")
+    context.log.info(f"Test Macro Recall: {macro_recall:.4f}")
+    context.log.info(f"Test Weighted Precision: {weighted_precision:.4f}")
+    context.log.info(f"Test Weighted Recall: {weighted_recall:.4f}")
     
     # Confusion Matrix
     cm = confusion_matrix(y_test, y_pred)
@@ -248,6 +258,10 @@ def train_transaction_classifier(context: AssetExecutionContext):
         'accuracy': float(accuracy),
         'macro_f1': float(macro_f1),
         'weighted_f1': float(weighted_f1),
+        'macro_precision': float(macro_precision),
+        'macro_recall': float(macro_recall),
+        'weighted_precision': float(weighted_precision),
+        'weighted_recall': float(weighted_recall),
         'categories': classifier.classes_.tolist(),
         'calibration_metrics': calibration_metrics
     }

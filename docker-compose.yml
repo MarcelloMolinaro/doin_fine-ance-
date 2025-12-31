@@ -52,6 +52,7 @@ services:
       POSTGRES_SCHEMA: analytics
     volumes:
       - ./ui/backend:/app
+      - ./dagster/models:/opt/dagster/models:ro
     depends_on:
       postgres:
         condition: service_healthy
