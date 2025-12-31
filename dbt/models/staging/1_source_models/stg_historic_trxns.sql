@@ -6,52 +6,25 @@ with
 
 source as ( select * from {{ ref('historic_transactions') }} )
 
+, account_mappings as ( select * from {{ ref('account_mappings') }} )
+
 , accounts_mapped as (
     select
-        *,
-        case 
-            when account_name = 'A_united'       then 'Chase United - Allegra'
-            when account_name = 'A_freedom'      then 'Chase Freedom - Allegra'
-            when 
-                account_name = 'A_mtn1' 
-                and type_account_person_account = '7786' 
-                then 'Mountain One - Checking'
-            when 
-                account_name = 'A_mtn1' 
-                and type_account_person_account = '5133' 
-                then 'Mountain One - Savings'
-            when account_name = 'M_freedom'      then 'Chase Freedom - Marcello'
-            when 
-                account_name = 'M_wintrust'
-                and type_account_person_account = 'Student Checking'
-                then 'Wintrust Checking'
-            when 
-                account_name = 'M_wintrust'
-                and type_account_person_account = 'Junior Savers Savings'
-                then 'Wintrust Savings'
-            when account_name = 'M_sapphire'     then 'Chase Sapphire - Marcello'
-            when account_name = 'M_united'       then 'Chase United - Marcello'
-            when account_name = 'Joint_amalg'    then 'Amalgamated'
-            when account_name = 'Joint_amex'     then 'Amex Shared'
-            when account_name = 'A_PastExpenses' then 'Historical Expenses Allegra'
-            when account_name = 'M_PastExpenses' then 'Historical Expenses Marcello'
-        end as mapped_account_name
-        ,
-        case 
-            when account_name = 'A_united'       then 'Allegra'
-            when account_name = 'A_freedom'      then 'Allegra'
-            when account_name = 'A_mtn1'         then 'Allegra'
-            when account_name = 'M_freedom'      then 'Marcello'
-            when account_name = 'M_wintrust'     then 'Marcello'
-            when account_name = 'M_sapphire'     then 'Marcello'
-            when account_name = 'M_united'       then 'Marcello'
-            when account_name = 'Joint_amalg'    then 'Joint'
-            when account_name = 'Joint_amex'     then 'Joint'
-            when account_name = 'A_PastExpenses' then 'Allegra'
-            when account_name = 'M_PastExpenses' then 'Marcello'
-        end as owner_name,
+        source.*,
+        coalesce(
+            account_mappings.mapped_account_name,
+            source.account_name
+        ) as mapped_account_name,
+        account_mappings.owner_name,
         row_number() over (order by transaction_date) as original_row_number
     from source
+    left join account_mappings
+        on source.account_name = account_mappings.source_account_name
+        and (
+            account_mappings.detailed_account_info is null
+            or account_mappings.detailed_account_info = ''
+            or source.additional_account_info::text = account_mappings.detailed_account_info
+        )
 )
 
 
@@ -69,11 +42,14 @@ source as ( select * from {{ ref('historic_transactions') }} )
         null::text                             as account_id,
         account_name::text                     as original_account_name,
         mapped_account_name::text              as account_name,
-        type_account_person_account::text      as detailed_account_name,
+        additional_account_info::text          as detailed_account_name,
         owner_name::text                       as owner_name,
         null::text                             as institution_domain,
         null::text                             as institution_name,
-        amount::numeric                        as amount,
+        case
+            when amount is null or amount = '' or amount = '#VALUE!' then null::numeric
+            else amount::numeric
+        end as amount,
         null::timestamp                        as posted,
         null::date                             as posted_date,
         null::timestamp                        as transacted_at,
@@ -83,8 +59,13 @@ source as ( select * from {{ ref('historic_transactions') }} )
         source_category::text                  as source_category,
         master_category::text                  as master_category,
         null::timestamp                        as import_timestamp,
-        to_date(input_date, 'MM/DD/YYYY')      as import_date
-    from accounts_mapped
+        case
+            when input_date is null then null::date
+            when input_date ~ '^\d{1,2}/\d{1,2}/\d{4}$' then to_date(input_date, 'MM/DD/YYYY')
+            when input_date ~ '^\d{4}-\d{1,2}-\d{1,2}$' then to_date(input_date, 'YYYY-MM-DD')
+            else null::date
+        end as import_date
+        from accounts_mapped
 
 )
 

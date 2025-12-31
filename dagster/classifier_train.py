@@ -78,7 +78,16 @@ def train_transaction_classifier(context: AssetExecutionContext):
     df_train = df_train[~lodging_mask].copy()
 
     context.log.info(f"Filtered out {lodging_mask.sum()} Lodging transactions without keywords")
-    context.log.info(f"Training transactions: {len(df_train)}")
+    context.log.info(f"Training transactions before filtering rare categories: {len(df_train)}")
+
+    # Filter out categories with fewer than 2 samples (required for stratified split)
+    category_counts = df_train['master_category'].value_counts()
+    rare_categories = category_counts[category_counts < 2].index.tolist()
+
+    if rare_categories:
+        context.log.info(f"Filtering out {len(rare_categories)} rare categories with < 2 samples: {rare_categories}")
+        df_train = df_train[~df_train['master_category'].isin(rare_categories)].copy()
+        context.log.info(f"Training transactions after filtering rare categories: {len(df_train)}")
     
     if len(df_train) < 100:
         raise ValueError(f"Not enough training data: {len(df_train)} transactions. Need at least 100.")

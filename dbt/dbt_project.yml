@@ -7,3 +7,16 @@ seeds:
   dagster_dbt_project:
     historic_transactions_example:
       enabled: false
+    account_mappings:
+      enabled: true
+      +column_types:
+        source_account_name: text
+        detailed_account_info: text
+        mapped_account_name: text
+        owner_name: text
+    simplefin_account_mappings:
+      enabled: true
+      +column_types:
+        source_account_name: text
+        account_id: text
+        mapped_account_name: text

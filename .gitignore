@@ -43,6 +43,8 @@ docker-compose.override.yml
 
 # dbt seeds - actual data files (example files are checked in)
 dbt/seeds/historic_transactions.csv
+dbt/seeds/account_mappings.csv
+dbt/seeds/simplefin_account_mappings.csv
 
 # ML model artifacts
 dagster/models/

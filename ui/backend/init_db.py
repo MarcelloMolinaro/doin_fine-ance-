@@ -5,6 +5,11 @@ from db.connection import engine
 def init_user_categories_table():
     """Create user_categories table if it doesn't exist."""
     with engine.connect() as conn:
+        # Create analytics schema first (required for dbt models)
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS analytics"))
+        conn.commit()
+        print("✓ analytics schema initialized successfully")
+
         # Create table
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS public.user_categories (
