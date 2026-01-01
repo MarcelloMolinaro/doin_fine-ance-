@@ -301,8 +301,6 @@ def get_transactions_filtered(
         WHERE {where_clause}
     """)
     count_params = {k: v for k, v in params.items() if k != 'limit' and k != 'offset'}
-    if description_search:
-        count_params["description_search"] = f"%{description_search}%"
     count_result = db.execute(count_query, count_params)
     total_count = count_result.scalar() or 0
     

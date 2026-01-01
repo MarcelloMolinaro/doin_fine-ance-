@@ -47,7 +47,7 @@ function App() {
       if (descriptionFilterInput !== descriptionFilter) {
         setCurrentPage(1)
       }
-    }, 600) // Wait 600ms after user stops typing
+    }, 1000) // Wait 1000ms after user stops typing
 
     return () => clearTimeout(timer)
   }, [descriptionFilterInput, descriptionFilter])
@@ -95,7 +95,7 @@ function App() {
       setTransactions(fetchedTransactions)
       setTotalCount(count)
       
-      // Initialize state from fetched transactions
+      // Initialize state from fetched transactions, but preserve existing user-assigned categories
       const initialNotes = {}
       const initialValidated = {}
       const initialSelected = {}
@@ -104,14 +104,18 @@ function App() {
         if (t.notes) initialNotes[t.transaction_id] = t.notes
         if (t.validated !== undefined) initialValidated[t.transaction_id] = t.validated
         // Only set selected category if user has assigned one (master_category from user_categories)
+        // This represents validated categories from the database
         if (t.master_category) {
           initialSelected[t.transaction_id] = t.master_category
         }
       })
       
-      setNotes(initialNotes)
-      setValidated(initialValidated)
-      setSelectedCategory(initialSelected)
+      setNotes(prevNotes => ({ ...prevNotes, ...initialNotes }))
+      setValidated(prevValidated => ({ ...prevValidated, ...initialValidated }))
+      // Merge with existing selectedCategory to preserve user assignments for transactions not in current view
+      // Database values (initialSelected) will override local values for fetched transactions, which is correct
+      // But local assignments for transactions not in current fetch will be preserved
+      setSelectedCategory(prevSelected => ({ ...prevSelected, ...initialSelected }))
       // Reset selection when transactions change (new view mode, etc.)
       setSelectedTransactions(new Set())
     } catch (err) {
@@ -374,6 +378,61 @@ function App() {
     }
   }
 
+  const handleValidateAllReAssigned = async () => {
+    try {
+      setValidatingAll(true)
+      setError(null)
+      setSuccess(null)
+
+      // Find all transactions that have been re-assigned (assigned category differs from predicted)
+      const reAssignedTransactions = transactions.filter(t => {
+        const assignedCategory = selectedCategory[t.transaction_id] || t.master_category
+        const predictedCategory = t.predicted_master_category
+        return assignedCategory && 
+               !validated[t.transaction_id] &&
+               predictedCategory && 
+               predictedCategory !== 'UNCERTAIN' &&
+               assignedCategory !== predictedCategory
+      })
+
+      if (reAssignedTransactions.length === 0) {
+        setError('No re-assigned transactions to validate')
+        setValidatingAll(false)
+        return
+      }
+
+      let validatedCount = 0
+      
+      // Validate each re-assigned transaction
+      for (const transaction of reAssignedTransactions) {
+        const assignedCategory = selectedCategory[transaction.transaction_id] || transaction.master_category
+        
+        try {
+          await axios.post(
+            `${API_BASE_URL}/api/transactions/${transaction.transaction_id}/categorize`,
+            {
+              master_category: assignedCategory,
+              source_category: null,
+              notes: notes[transaction.transaction_id] || null,
+              validated: true
+            }
+          )
+          validatedCount++
+        } catch (err) {
+          console.error(`Failed to validate transaction ${transaction.transaction_id}:`, err)
+        }
+      }
+
+      setSuccess(`Marked ${validatedCount} re-assigned transactions as validated`)
+      await fetchTransactions()
+    } catch (err) {
+      setError(`Failed to validate transactions: ${err.message}`)
+      console.error(err)
+    } finally {
+      setValidatingAll(false)
+    }
+  }
+
   const handleSelectTransaction = (transactionId, isSelected) => {
     const newSelected = new Set(selectedTransactions)
     if (isSelected) {
@@ -553,7 +612,32 @@ function App() {
       : (transaction.master_category || '')
     
     // For unvalidated transactions, show both predicted and assigned (if assigned)
+    // But if predicted and assigned are the same, only show predicted
     if (viewMode !== 'validated' && assignedCategory) {
+      // If predicted and assigned categories are the same, only show predicted
+      if (predictedCategory && 
+          predictedCategory !== 'UNCERTAIN' && 
+          predictedCategory === assignedCategory) {
+        const categoryColor = getCategoryColor(predictedCategory)
+        return (
+          <span 
+            className="category-badge category-predicted" 
+            style={{
+              backgroundColor: categoryColor,
+              color: '#2c3e50',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              display: 'inline-block'
+            }}
+          >
+            {predictedCategory}
+          </span>
+        )
+      }
+      
+      // Otherwise, show both predicted and assigned
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {/* Show predicted category */}
@@ -1116,7 +1200,7 @@ function App() {
                   boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)' 
                 }}>
                   <div style={{ color: '#6c757d', fontSize: '0.8rem', marginBottom: '6px' }}>Weighted F1</div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: '600', color: '#17a2b8' }}>
+                  <div style={{ fontSize: '1.75rem', fontWeight: '600', color: '#ff9800' }}>
                     {(latestMetrics.weighted_f1 * 100).toFixed(1)}%
                   </div>
                 </div>
@@ -1128,7 +1212,7 @@ function App() {
                     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)' 
                   }}>
                     <div style={{ color: '#6c757d', fontSize: '0.8rem', marginBottom: '6px' }}>Precision</div>
-                    <div style={{ fontSize: '1.75rem', fontWeight: '600', color: '#ffc107' }}>
+                    <div style={{ fontSize: '1.75rem', fontWeight: '600', color: '#17a2b8' }}>
                       {(latestMetrics.macro_precision * 100).toFixed(1)}%
                     </div>
                   </div>
@@ -1141,7 +1225,7 @@ function App() {
                     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)' 
                   }}>
                     <div style={{ color: '#6c757d', fontSize: '0.8rem', marginBottom: '6px' }}>Recall</div>
-                    <div style={{ fontSize: '1.75rem', fontWeight: '600', color: '#fd7e14' }}>
+                    <div style={{ fontSize: '1.75rem', fontWeight: '600', color: '#dc3545' }}>
                       {(latestMetrics.macro_recall * 100).toFixed(1)}%
                     </div>
                   </div>
@@ -1273,7 +1357,7 @@ function App() {
                         <Line 
                           type="monotone" 
                           dataKey="weightedF1" 
-                          stroke="#17a2b8" 
+                          stroke="#ff9800" 
                           strokeWidth={2}
                           name="Weighted F1 (%)"
                           dot={{ r: 4 }}
@@ -1286,7 +1370,7 @@ function App() {
                         <Line 
                           type="monotone" 
                           dataKey="macroPrecision" 
-                          stroke="#ffc107" 
+                          stroke="#17a2b8" 
                           strokeWidth={2}
                           name="Macro Precision (%)"
                           dot={{ r: 4 }}
@@ -1296,7 +1380,7 @@ function App() {
                         <Line 
                           type="monotone" 
                           dataKey="macroRecall" 
-                          stroke="#fd7e14" 
+                          stroke="#dc3545" 
                           strokeWidth={2}
                           name="Macro Recall (%)"
                           dot={{ r: 4 }}
@@ -1308,7 +1392,7 @@ function App() {
                             <Line 
                               type="monotone" 
                               dataKey="weightedPrecision" 
-                              stroke="#ff9800" 
+                              stroke="#0dcaf0" 
                               strokeWidth={2}
                               strokeDasharray="5 5"
                               name="Weighted Precision (%)"
@@ -1319,7 +1403,7 @@ function App() {
                             <Line 
                               type="monotone" 
                               dataKey="weightedRecall" 
-                              stroke="#f57c00" 
+                              stroke="#e63946" 
                               strokeWidth={2}
                               strokeDasharray="5 5"
                               name="Weighted Recall (%)"
@@ -1487,7 +1571,7 @@ function App() {
         if (descriptionFilterInput !== descriptionFilter) {
           setCurrentPage(1)
         }
-      }, 600) // Wait 600ms after user stops typing
+      }, 1000) // Wait 1000ms after user stops typing
 
       return () => clearTimeout(timer)
     }, [descriptionFilterInput, descriptionFilter])
@@ -1970,13 +2054,39 @@ function App() {
             <div className="bulk-actions" style={{ marginTop: '15px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                 {viewMode === 'unvalidated_predicted' ? (
-                  <button
-                    className="btn btn-secondary"
-                    onClick={handleSelectAllPredicted}
-                    style={{ backgroundColor: '#6c757d', color: 'white' }}
-                  >
-                    Select All Predicted ({transactions.filter(t => t.predicted_master_category && t.predicted_master_category !== 'UNCERTAIN' && !validated[t.transaction_id]).length})
-                  </button>
+                  <>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleSelectAllPredicted}
+                      style={{ backgroundColor: '#6c757d', color: 'white' }}
+                    >
+                      Select All Predicted ({transactions.filter(t => t.predicted_master_category && t.predicted_master_category !== 'UNCERTAIN' && !validated[t.transaction_id]).length})
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleValidateAllReAssigned}
+                      disabled={validatingAll || transactions.filter(t => {
+                        const assignedCategory = selectedCategory[t.transaction_id] || t.master_category
+                        const predictedCategory = t.predicted_master_category
+                        return assignedCategory && 
+                               !validated[t.transaction_id] &&
+                               predictedCategory && 
+                               predictedCategory !== 'UNCERTAIN' &&
+                               assignedCategory !== predictedCategory
+                      }).length === 0}
+                      style={{ backgroundColor: '#28a745', color: 'white' }}
+                    >
+                      {validatingAll ? 'Validating...' : `Validate All re-Assigned (${transactions.filter(t => {
+                        const assignedCategory = selectedCategory[t.transaction_id] || t.master_category
+                        const predictedCategory = t.predicted_master_category
+                        return assignedCategory && 
+                               !validated[t.transaction_id] &&
+                               predictedCategory && 
+                               predictedCategory !== 'UNCERTAIN' &&
+                               assignedCategory !== predictedCategory
+                      }).length})`}
+                    </button>
+                  </>
                 ) : (
                   <>
                     <button
