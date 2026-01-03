@@ -1,17 +1,25 @@
 # TODOs
 
 ## Short Term
-- [ ] Add in a transaction count to the all data tab.
-- [ ] Improve the filtering you can do on each page, perhaps create an accounts endpoint that allows you to easily filter by account, rather than by typing?
+- [x] Improve Model Performance
+- [ ] Consider testing a Chrome MCP for Cursor to check its work?
+- [ ] Fix shitty focus on Transaction Categorization filters
+- [ ] Make code updates to handle non-historic setups or different ones (with different categories?)
+- [ ] Move Feature engineering out of python and into SQL?
 
 ## Marcello & Allegra Data issues
-- [ ] Pre Feb 3rd 2025, Allegra's Betterment 300$ are broken, listed as investment x2 and 1 transfer, should be transfer x2 and 1 investment (-300)
-- [ ] Sonic categorized as Utilities and Home
+- [x] Pre Feb 3rd 2025, Allegra's Betterment 300$ are broken, listed as investment x2 and 1 transfer, should be transfer x2 and 1 investment (-300)
+- [x] Sonic categorized as Utilities and Home
+- [x] Apple.com monthly bill is misc/shopping/utilities - should be utilities
+  - fixed historic and user_categories tables, waiting on full-refresh
+- [ ] M1 is fucked, shows as income for a bunch of them
 
-- [ ] Build out the Model Details tab - Find out what informatio would be helpful to know?
-- [x] Create a config file for the most configgy things
-  - [x] Create account mapping seed and dbt_model
-  - [x] Create list of transaction things to exclude (i.e. credit card payments)
+- [x] Fix different hash issue! Determine extent of problem
+  - [x] I'm seeing for the Devil walnut Creek transaction it is in uncategorized AND validated but with different transaction ID's. I need to set the t_id to something that will not change anymore (done in dbt). Get the correct t_id's into the validated table (via user_categories table?) so that they don't show in uncategorized anymore.
+  - [x] I don't understand why I have different types of transaction_id's in the validated table... -> must be a full-refresh issue?
+
+
+## Other
   - [ ] Create sync script to sync config.yaml transaction exclusions to seed_transaction_exclusions.csv
 - [ ] Add a Databricks source integration and test end-to-end
 - [ ] Remove bloat/tech debt in all of my code
@@ -25,6 +33,8 @@
 - [ ] Learn about ML classifiers? Why are we using random forest here? What is Vectorized text?
   - [ ] Check out Ian's documents to see if they have good explanation
 - [ ] Add a flow for "Import CSV" of historic transaction
+- [ ] Consider an "Edit Validated Transactions" feature...
+- [ ] Improve the filtering you can do on each page, perhaps create an accounts endpoint that allows you to easily filter by account, rather than by typing?
 
 
 ## Will not/Can not do
