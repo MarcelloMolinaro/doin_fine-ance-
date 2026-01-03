@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir \
     scikit-learn \
     joblib \
     numpy \
-    scipy
+    scipy \
+    pyyaml
 # Copy the Dagster project files
 COPY . .
 

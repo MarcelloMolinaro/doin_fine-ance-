@@ -8,9 +8,40 @@ from dagster import asset, AssetExecutionContext
 import pandas as pd
 from sqlalchemy import create_engine, text
 import joblib
+import yaml
 from pathlib import Path
 from scipy.sparse import hstack, csr_matrix
 from datetime import datetime
+
+
+def load_config():
+    """Load configuration from config.yaml file."""
+    # Try multiple possible paths for config.yaml
+    possible_paths = [
+        Path("/opt/dagster/config.yaml"),  # Root directory (mounted in docker-compose)
+        Path("/opt/dagster/app/config.yaml"),  # In dagster directory (fallback)
+    ]
+    
+    config_path = None
+    for path in possible_paths:
+        if path.exists():
+            config_path = path
+            break
+    
+    if config_path is None:
+        # Fallback to default values if config doesn't exist
+        return {'model': {'confidence_threshold': 0.40}}
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Ensure model section exists with defaults
+    if 'model' not in config:
+        config['model'] = {}
+    if 'confidence_threshold' not in config['model']:
+        config['model']['confidence_threshold'] = 0.40
+    
+    return config
 
 
 @asset(
@@ -49,6 +80,9 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     
     context.log.info(f"Predicting categories for {len(df)} transactions")
     
+    # Store original columns for saving to database (before feature engineering)
+    original_columns = df.columns.tolist()
+    
     # Prepare features (same as training)
     df['combined_text'] = (
         df['description'].fillna('').astype(str) + ' ' +
@@ -72,7 +106,7 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
         bins=[0, 10, 50, 100, 500, float('inf')],
         labels=[0, 1, 2, 3, 4]  # micro, small, medium, large, huge
     )
-    df['amount_bucket'] = df['amount_bucket'].fillna(2).astype(int)  # Fill NaN with medium bucket
+    df['amount_bucket'] = df['amount_bucket'].fillna(0).astype(int)  # Fill NaN with micro bucket (0) as default
     
     # Keyword features for high-precision categories
     desc_lower = df['description'].fillna('').str.lower()
@@ -94,14 +128,24 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     df['has_shop_keyword'] = desc_lower.str.contains(
         'amazon|target|walmart|ebay|etsy|shop|store', case=False, na=False
     ).astype(int)
+    df['has_flight_keyword'] = desc_lower.str.contains(
+        'airline|united|delta|american|southwest|jetblue|alaska|spirit|frontier|airlines|flight', case=False, na=False
+    ).astype(int)
+    df['has_credit_fee_keyword'] = desc_lower.str.contains(
+        'annual|membership|fee', case=False, na=False
+    ).astype(int)
+    df['has_interest_keyword'] = desc_lower.str.contains(
+        'interest', case=False, na=False
+    ).astype(int)
     
     X_text = df['combined_text'].values
     X_numerical = df[[
-        'amount', 'amount_abs', 'is_negative', 
-        'day_of_week', 'month', 'day_of_month',
+        'amount', 'is_negative', 
+        'day_of_week', 'day_of_month',
         'amount_bucket',
         'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
-        'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword'
+        'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword',
+        'has_flight_keyword', 'has_credit_fee_keyword', 'has_interest_keyword'
     ]].values
     
     # Transform features
@@ -116,9 +160,12 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     prediction_probas = classifier.predict_proba(X)
     max_probas = prediction_probas.max(axis=1)
     
-    # Apply confidence threshold for high precision (only predict if >=45% confident)
-    # Predictions below this threshold are marked as 'UNCERTAIN'
-    confidence_threshold = 0.45
+    # Load confidence threshold from config
+    config = load_config()
+    confidence_threshold = config['model']['confidence_threshold']
+    context.log.info(f"Using confidence threshold: {confidence_threshold}")
+    
+    # Apply confidence threshold (predictions below this threshold are marked as 'UNCERTAIN')
     high_confidence_mask = max_probas >= confidence_threshold
     
     # Add predictions to dataframe
@@ -136,8 +183,14 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     df['prediction_timestamp'] = datetime.now()
     df['model_version'] = model_version
     
+    # Select only original columns plus prediction columns for database save
+    # Exclude feature engineering columns (combined_text, day_of_week, month, etc.)
+    columns_to_save = original_columns + ['predicted_master_category', 'prediction_confidence', 
+                                           'prediction_timestamp', 'model_version']
+    df_to_save = df[columns_to_save].copy()
+    
     # Save predictions to database
-    df.to_sql(
+    df_to_save.to_sql(
         'predicted_transactions',
         engine,
         schema='analytics',

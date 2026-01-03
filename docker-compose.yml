@@ -11,6 +11,7 @@ services:
     volumes:
       - ./dagster:/opt/dagster/app
       - ./dbt:/opt/dbt
+      - ./config.yaml:/opt/dagster/config.yaml
     command: >
       bash -c "
       dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml &

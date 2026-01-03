@@ -26,6 +26,7 @@ from sklearn.metrics import (
 from sklearn.calibration import calibration_curve
 import joblib
 import os
+import yaml
 from datetime import datetime
 import json
 from pathlib import Path
@@ -37,6 +38,36 @@ def create_model_storage_path():
     storage_path = Path("/opt/dagster/app/models")
     storage_path.mkdir(exist_ok=True)
     return storage_path
+
+
+def load_config():
+    """Load configuration from config.yaml file."""
+    # Try multiple possible paths for config.yaml
+    possible_paths = [
+        Path("/opt/dagster/config.yaml"),  # Root directory (mounted in docker-compose)
+        Path("/opt/dagster/app/config.yaml"),  # In dagster directory (fallback)
+    ]
+    
+    config_path = None
+    for path in possible_paths:
+        if path.exists():
+            config_path = path
+            break
+    
+    if config_path is None:
+        # Fallback to default values if config doesn't exist
+        return {'model': {'confidence_threshold': 0.40}}
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Ensure model section exists with defaults
+    if 'model' not in config:
+        config['model'] = {}
+    if 'confidence_threshold' not in config['model']:
+        config['model']['confidence_threshold'] = 0.40
+    
+    return config
 
 
 @asset(
@@ -108,7 +139,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
         bins=[0, 10, 50, 100, 500, float('inf')],
         labels=[0, 1, 2, 3, 4]  # micro, small, medium, large, huge
     )
-    df_train['amount_bucket'] = df_train['amount_bucket'].fillna(2).astype(int)  # Fill NaN with medium bucket
+    df_train['amount_bucket'] = df_train['amount_bucket'].fillna(0).astype(int)  # Fill NaN with micro bucket (0) as default
     
     # Keyword features for high-precision categories
     desc_lower = df_train['description'].fillna('').str.lower()
@@ -130,15 +161,25 @@ def train_transaction_classifier(context: AssetExecutionContext):
     df_train['has_shop_keyword'] = desc_lower.str.contains(
         'amazon|target|walmart|ebay|etsy|shop|store', case=False, na=False
     ).astype(int)
+    df_train['has_flight_keyword'] = desc_lower.str.contains(
+        'airline|united|delta|american|southwest|jetblue|alaska|spirit|frontier|airlines|flight', case=False, na=False
+    ).astype(int)
+    df_train['has_credit_fee_keyword'] = desc_lower.str.contains(
+        'annual|membership|fee', case=False, na=False
+    ).astype(int)
+    df_train['has_interest_keyword'] = desc_lower.str.contains(
+        'interest', case=False, na=False
+    ).astype(int)
     
     # Prepare features and target
     X_text = df_train['combined_text'].values
     X_numerical = df_train[[
-        'amount', 'amount_abs', 'is_negative', 
-        'day_of_week', 'month', 'day_of_month',
+        'amount', 'is_negative', 
+        'day_of_week', 'day_of_month',
         'amount_bucket',
         'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
-        'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword'
+        'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword',
+        'has_flight_keyword', 'has_credit_fee_keyword', 'has_interest_keyword'
     ]].values
     y = df_train['master_category'].values
     
@@ -158,7 +199,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
     
     # Feature engineering: TF-IDF for text, StandardScaler for numerical features
     text_vectorizer = TfidfVectorizer(
-        max_features=500,
+        max_features=1000,  # Increased from 500 to capture more text patterns
         ngram_range=(1, 2),  # Include unigrams and bigrams
         min_df=2,  # Ignore terms that appear in fewer than 2 documents
         max_df=0.95,  # Ignore terms that appear in more than 95% of documents
@@ -182,7 +223,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
     X_train = hstack([X_train_text_vec, X_train_numerical_sparse])
     X_test = hstack([X_test_text_vec, X_test_numerical_sparse])
     
-    # Train classifier - optimized for precision
+    # Train classifier - using balanced class weights to improve recall
     # Using RandomForest for interpretability and handling of mixed features
     classifier = RandomForestClassifier(
         n_estimators=200,              # More trees for better stability
@@ -192,7 +233,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
         max_features='sqrt',           # Reduce overfitting
         random_state=42,
         n_jobs=-1,
-        class_weight=None              # Removed balanced to favor precision over recall
+        class_weight='balanced'        # Balanced weights to handle imbalanced classes and improve recall
     )
     
     context.log.info("Training classifier...")
@@ -280,7 +321,8 @@ def train_transaction_classifier(context: AssetExecutionContext):
             'text_tfidf', 'amount', 'amount_abs', 'is_negative', 
             'day_of_week', 'month', 'day_of_month', 'amount_bucket',
             'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
-            'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword'
+            'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword',
+            'has_flight_keyword', 'has_credit_fee_keyword', 'has_interest_keyword'
         ]
     }
     

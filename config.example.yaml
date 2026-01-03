@@ -18,3 +18,12 @@ transaction_exclusions:
     - "%Transfer%"
     # Add more patterns as needed
 
+# Model Configuration
+# Settings for the transaction classifier model
+model:
+  # Confidence threshold for predictions (0.0 to 1.0)
+  # Predictions below this threshold will be marked as 'UNCERTAIN'
+  # Lower values = more predictions but potentially lower precision
+  # Higher values = fewer predictions but higher precision
+  confidence_threshold: 0.40
+
