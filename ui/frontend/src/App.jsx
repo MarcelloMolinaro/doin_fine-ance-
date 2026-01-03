@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import './index.css'
@@ -25,8 +25,8 @@ function App() {
   const [descriptionFilterInput, setDescriptionFilterInput] = useState('') // What user is typing
   const [descriptionFilter, setDescriptionFilter] = useState('') // Debounced value for API calls
   const [totalCount, setTotalCount] = useState(0)
-  const descriptionInputRef = useRef(null)
-  const shouldRestoreFocusRef = useRef(false)
+  // Persist TransactionsPage filter per viewMode across component recreations
+  const transactionsPageFilterRef = useRef({})
   const [refreshingValidated, setRefreshingValidated] = useState(false)
   const [triggeringIngest, setTriggeringIngest] = useState(false)
   const [warnings, setWarnings] = useState([])
@@ -35,22 +35,8 @@ function App() {
 
   useEffect(() => {
     setCurrentPage(1) // Reset to first page when view mode changes
-    setDescriptionFilterInput('') // Reset filter input when view mode changes
-    setDescriptionFilter('') // Reset debounced filter when view mode changes
+    // Note: descriptionFilter is now managed by TransactionsPage component
   }, [viewMode])
-
-  // Debounce the description filter input
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDescriptionFilter(descriptionFilterInput)
-      // Only reset page if filter actually changed (not on initial mount)
-      if (descriptionFilterInput !== descriptionFilter) {
-        setCurrentPage(1)
-      }
-    }, 1000) // Wait 1000ms after user stops typing
-
-    return () => clearTimeout(timer)
-  }, [descriptionFilterInput, descriptionFilter])
 
   useEffect(() => {
     fetchTransactions()
@@ -1926,6 +1912,65 @@ function App() {
 
   // Transaction Categorization Page (existing content)
   const TransactionsPage = () => {
+    // Initialize filter state from persistent ref for current viewMode
+    if (!transactionsPageFilterRef.current[viewMode]) {
+      transactionsPageFilterRef.current[viewMode] = { input: '', filter: '' }
+    }
+    
+    const [localDescriptionFilterInput, setLocalDescriptionFilterInput] = useState(
+      transactionsPageFilterRef.current[viewMode].input
+    )
+    const [localDescriptionFilter, setLocalDescriptionFilter] = useState(
+      transactionsPageFilterRef.current[viewMode].filter
+    )
+    
+    // Reset filter when viewMode changes
+    useEffect(() => {
+      if (!transactionsPageFilterRef.current[viewMode]) {
+        transactionsPageFilterRef.current[viewMode] = { input: '', filter: '' }
+      }
+      const filter = transactionsPageFilterRef.current[viewMode]
+      setLocalDescriptionFilterInput(filter.input)
+      setLocalDescriptionFilter(filter.filter)
+    }, [viewMode])
+    
+    // Persist filter values in App-level ref for current viewMode
+    useEffect(() => {
+      if (transactionsPageFilterRef.current[viewMode]) {
+        transactionsPageFilterRef.current[viewMode].input = localDescriptionFilterInput
+      }
+    }, [localDescriptionFilterInput, viewMode])
+    
+    useEffect(() => {
+      if (transactionsPageFilterRef.current[viewMode]) {
+        transactionsPageFilterRef.current[viewMode].filter = localDescriptionFilter
+      }
+    }, [localDescriptionFilter, viewMode])
+    
+    // Debounce local input to local filter (matches AllDataPage timing)
+    useEffect(() => {
+      if (localDescriptionFilterInput === '') {
+        // If clearing the filter, update immediately
+        setLocalDescriptionFilter('')
+        return
+      }
+      
+      const timer = setTimeout(() => {
+        setLocalDescriptionFilter(localDescriptionFilterInput)
+        // Reset to first page when filter changes
+        if (localDescriptionFilterInput !== localDescriptionFilter) {
+          setCurrentPage(1)
+        }
+      }, 1000) // Wait 1000ms after user stops typing (same as AllDataPage)
+      
+      return () => clearTimeout(timer)
+    }, [localDescriptionFilterInput, localDescriptionFilter])
+    
+    // Sync local filter to global filter to trigger fetchTransactions
+    useEffect(() => {
+      setDescriptionFilter(localDescriptionFilter)
+    }, [localDescriptionFilter])
+    
     return (
       <>
         <div className="header">
@@ -1970,26 +2015,10 @@ function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <label style={{ fontWeight: '500', whiteSpace: 'nowrap' }}>Search Description:</label>
               <input
-                ref={descriptionInputRef}
                 type="text"
                 placeholder="Filter by description..."
-                value={descriptionFilterInput}
-                onChange={(e) => {
-                  const cursorPosition = e.target.selectionStart
-                  const wasFocused = document.activeElement === e.target
-                  shouldRestoreFocusRef.current = wasFocused
-                  setDescriptionFilterInput(e.target.value)
-                  // Use requestAnimationFrame to restore focus after React's render
-                  requestAnimationFrame(() => {
-                    if (descriptionInputRef.current && shouldRestoreFocusRef.current) {
-                      descriptionInputRef.current.focus()
-                      // Restore cursor position
-                      const newPosition = Math.min(cursorPosition, descriptionInputRef.current.value.length)
-                      descriptionInputRef.current.setSelectionRange(newPosition, newPosition)
-                      shouldRestoreFocusRef.current = false
-                    }
-                  })
-                }}
+                value={localDescriptionFilterInput}
+                onChange={(e) => setLocalDescriptionFilterInput(e.target.value)}
                 style={{
                   padding: '6px 12px',
                   border: '1px solid #ced4da',
@@ -1998,10 +2027,11 @@ function App() {
                   fontSize: '0.875rem'
                 }}
               />
-              {descriptionFilterInput && (
+              {localDescriptionFilterInput && (
                 <button
                   onClick={() => {
-                    setDescriptionFilterInput('')
+                    setLocalDescriptionFilterInput('')
+                    setLocalDescriptionFilter('')
                     setDescriptionFilter('')
                     setCurrentPage(1)
                   }}
@@ -2246,7 +2276,7 @@ function App() {
           </div>
         ) : transactions.length === 0 ? (
           <div className="loading" style={{ padding: '40px' }}>
-            {descriptionFilter ? 'No transactions found matching your search.' : 'No transactions found for this view.'}
+            {localDescriptionFilter ? 'No transactions found matching your search.' : 'No transactions found for this view.'}
           </div>
         ) : (
           <table>
@@ -2486,7 +2516,7 @@ function App() {
       {renderTabs()}
       
       {activeTab === 'control-center' && <ControlCenterPage />}
-      {activeTab === 'transactions' && <TransactionsPage />}
+      {activeTab === 'transactions' && <TransactionsPage key="transactions-page" />}
       {activeTab === 'model-details' && <ModelDetailsPage />}
       {activeTab === 'all-data' && <AllDataPage />}
     </div>
