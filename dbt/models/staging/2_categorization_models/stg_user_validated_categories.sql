@@ -6,7 +6,7 @@ with
 
 user_categories as (select * from {{ source('public_sources', 'user_categories') }})
 
-, trxn_details as (select * from {{ ref('int_trxns') }})
+, trxn_details as (select * from {{ ref('int_trxns_features') }})
 
 , final as (
     
@@ -36,6 +36,23 @@ user_categories as (select * from {{ source('public_sources', 'user_categories')
         -- u_cat.updated_by,
         u_cat.updated_at      as category_changed_at
 
+        , details.combined_text
+        , details.day_of_week
+        , details.month
+        , details.day_of_month
+        , details.is_negative
+        , details.amount_abs
+        , details.amount_bucket
+        , details.has_hotel_keyword
+        , details.has_gas_keyword
+        , details.has_grocery_keyword
+        , details.has_restaurant_keyword
+        , details.has_transport_keyword
+        , details.has_shop_keyword
+        , details.has_flight_keyword
+        , details.has_credit_fee_keyword
+        , details.has_interest_keyword
+        
     from user_categories as u_cat
     left join trxn_details as details
         on u_cat.transaction_id = details.transaction_id

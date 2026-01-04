@@ -45,7 +45,24 @@ bootstrap_trxns as (
             import_date,
             source_name,
             null as user_notes,
-            null as category_changed_at
+            null as category_changed_at,
+            -- Feature columns (must match stg_user_validated_categories)
+            combined_text,
+            day_of_week,
+            month,
+            day_of_month,
+            is_negative,
+            amount_abs,
+            amount_bucket,
+            has_hotel_keyword,
+            has_gas_keyword,
+            has_grocery_keyword,
+            has_restaurant_keyword,
+            has_transport_keyword,
+            has_shop_keyword,
+            has_flight_keyword,
+            has_credit_fee_keyword,
+            has_interest_keyword
         from {{ ref('fct_trxns_categorized') }}
 
         union all

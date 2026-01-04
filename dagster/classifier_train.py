@@ -84,7 +84,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
     """
     engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
     
-    # Read validated transactions for training, filter out rows with null amounts
+    # Read validated transactions for training, filters out rows with null amounts
     query_categorized = text("SELECT * FROM analytics.fct_validated_trxns")
     df_train = pd.read_sql(query_categorized, engine)
     df_train = df_train[df_train['amount'].notna()].copy()
@@ -116,60 +116,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
     if len(df_train) < 100:
         raise ValueError(f"Not enough training data: {len(df_train)} transactions. Need at least 100.")
     
-    # Feature engineering
-    # Combine description and account_name for text features
-    df_train['combined_text'] = (
-        df_train['description'].fillna('').astype(str) + ' ' +
-        df_train['account_name'].fillna('').astype(str) + ' ' +
-        df_train.get('institution_name', '').fillna('').astype(str)
-    )
-    
-    # Transaction date features (transacted_date already parsed above)
-    df_train['day_of_week'] = df_train['transacted_date'].dt.dayofweek  # 0=Monday, 6=Sunday
-    df_train['month'] = df_train['transacted_date'].dt.month  # 1-12
-    df_train['day_of_month'] = df_train['transacted_date'].dt.day  # 1-31
-    
-    # Amount derived features
-    df_train['is_negative'] = (df_train['amount'] < 0).astype(int)
-    df_train['amount_abs'] = df_train['amount'].abs()
-    
-    # Transaction pattern features - amount buckets
-    df_train['amount_bucket'] = pd.cut(
-        df_train['amount_abs'],
-        bins=[0, 10, 50, 100, 500, float('inf')],
-        labels=[0, 1, 2, 3, 4]  # micro, small, medium, large, huge
-    )
-    df_train['amount_bucket'] = df_train['amount_bucket'].fillna(0).astype(int)  # Fill NaN with micro bucket (0) as default
-    
-    # Keyword features for high-precision categories
-    desc_lower = df_train['description'].fillna('').str.lower()
-    df_train['has_hotel_keyword'] = desc_lower.str.contains(
-        'hotel|airbnb|inn|resort|motel|hipcamp|booking', case=False, na=False
-    ).astype(int)
-    df_train['has_gas_keyword'] = desc_lower.str.contains(
-        'shell|chevron|exxon|bp|mobil|gas|fuel|76|arco', case=False, na=False
-    ).astype(int)
-    df_train['has_grocery_keyword'] = desc_lower.str.contains(
-        'safeway|costco|trader|whole foods|kroger|grocery|market|albertsons|bowlberkeley', case=False, na=False
-    ).astype(int)
-    df_train['has_restaurant_keyword'] = desc_lower.str.contains(
-        'restaurant|cafe|coffee|starbucks|mcdonald|burger|pizza|chipotle|dining', case=False, na=False
-    ).astype(int)
-    df_train['has_transport_keyword'] = desc_lower.str.contains(
-        'uber|lyft|taxi|bart|metro|transit|parking|toll', case=False, na=False
-    ).astype(int)
-    df_train['has_shop_keyword'] = desc_lower.str.contains(
-        'amazon|target|walmart|ebay|etsy|shop|store', case=False, na=False
-    ).astype(int)
-    df_train['has_flight_keyword'] = desc_lower.str.contains(
-        'airline|united|delta|american|southwest|jetblue|alaska|spirit|frontier|airlines|flight', case=False, na=False
-    ).astype(int)
-    df_train['has_credit_fee_keyword'] = desc_lower.str.contains(
-        'annual|membership|fee', case=False, na=False
-    ).astype(int)
-    df_train['has_interest_keyword'] = desc_lower.str.contains(
-        'interest', case=False, na=False
-    ).astype(int)
+    # Note: Features are now loaded from dbt model (int_trxns_features)
     
     # Prepare features and target
     X_text = df_train['combined_text'].values

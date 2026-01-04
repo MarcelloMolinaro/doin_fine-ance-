@@ -4,7 +4,7 @@
 
 with 
 
-src as (select * from {{ ref('int_trxns') }})
+src as (select * from {{ ref('int_trxns_features') }})
 
 , user_validated_trxns as (select * from {{ ref('fct_validated_trxns') }})
 

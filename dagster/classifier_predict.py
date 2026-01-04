@@ -80,64 +80,6 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     
     context.log.info(f"Predicting categories for {len(df)} transactions")
     
-    # Store original columns for saving to database (before feature engineering)
-    original_columns = df.columns.tolist()
-    
-    # Prepare features (same as training)
-    df['combined_text'] = (
-        df['description'].fillna('').astype(str) + ' ' +
-        df['account_name'].fillna('').astype(str) + ' ' +
-        df.get('institution_name', '').fillna('').astype(str)
-    )
-    
-    # Transaction date features
-    df['transacted_date'] = pd.to_datetime(df['transacted_date'])
-    df['day_of_week'] = df['transacted_date'].dt.dayofweek  # 0=Monday, 6=Sunday
-    df['month'] = df['transacted_date'].dt.month  # 1-12
-    df['day_of_month'] = df['transacted_date'].dt.day  # 1-31
-    
-    # Amount derived features
-    df['is_negative'] = (df['amount'] < 0).astype(int)
-    df['amount_abs'] = df['amount'].abs()
-    
-    # Transaction pattern features - amount buckets
-    df['amount_bucket'] = pd.cut(
-        df['amount_abs'],
-        bins=[0, 10, 50, 100, 500, float('inf')],
-        labels=[0, 1, 2, 3, 4]  # micro, small, medium, large, huge
-    )
-    df['amount_bucket'] = df['amount_bucket'].fillna(0).astype(int)  # Fill NaN with micro bucket (0) as default
-    
-    # Keyword features for high-precision categories
-    desc_lower = df['description'].fillna('').str.lower()
-    df['has_hotel_keyword'] = desc_lower.str.contains(
-        'hotel|airbnb|inn|resort|motel|hipcamp|booking', case=False, na=False
-    ).astype(int)
-    df['has_gas_keyword'] = desc_lower.str.contains(
-        'shell|chevron|exxon|bp|mobil|gas|fuel|76|arco', case=False, na=False
-    ).astype(int)
-    df['has_grocery_keyword'] = desc_lower.str.contains(
-        'safeway|costco|trader|whole foods|kroger|grocery|market|albertsons|bowlberkeley', case=False, na=False
-    ).astype(int)
-    df['has_restaurant_keyword'] = desc_lower.str.contains(
-        'restaurant|cafe|coffee|starbucks|mcdonald|burger|pizza|chipotle|dining', case=False, na=False
-    ).astype(int)
-    df['has_transport_keyword'] = desc_lower.str.contains(
-        'uber|lyft|taxi|bart|metro|transit|parking|toll', case=False, na=False
-    ).astype(int)
-    df['has_shop_keyword'] = desc_lower.str.contains(
-        'amazon|target|walmart|ebay|etsy|shop|store', case=False, na=False
-    ).astype(int)
-    df['has_flight_keyword'] = desc_lower.str.contains(
-        'airline|united|delta|american|southwest|jetblue|alaska|spirit|frontier|airlines|flight', case=False, na=False
-    ).astype(int)
-    df['has_credit_fee_keyword'] = desc_lower.str.contains(
-        'annual|membership|fee', case=False, na=False
-    ).astype(int)
-    df['has_interest_keyword'] = desc_lower.str.contains(
-        'interest', case=False, na=False
-    ).astype(int)
-    
     X_text = df['combined_text'].values
     X_numerical = df[[
         'amount', 'is_negative', 
@@ -183,14 +125,9 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     df['prediction_timestamp'] = datetime.now()
     df['model_version'] = model_version
     
-    # Select only original columns plus prediction columns for database save
-    # Exclude feature engineering columns (combined_text, day_of_week, month, etc.)
-    columns_to_save = original_columns + ['predicted_master_category', 'prediction_confidence', 
-                                           'prediction_timestamp', 'model_version']
-    df_to_save = df[columns_to_save].copy()
     
     # Save predictions to database
-    df_to_save.to_sql(
+    df.to_sql(
         'predicted_transactions',
         engine,
         schema='analytics',
