@@ -96,15 +96,15 @@ def dbt_models(context: AssetExecutionContext, dbt: DbtCliResource, config: DbtM
 refresh_validated_trxns_job = define_asset_job(
     name="refresh_validated_trxns",
     selection=(
-        AssetSelection.keys("fct_validated_trxns")
-        .downstream()
-        | AssetSelection.keys("fct_validated_trxns")
+        AssetSelection.keys("fct_validated_trxns").downstream()
     ),
+    description="Runs incremental refresh of validated transactions table, retrains the model, and re-runs predicitions",
 )
 
 full_refresh_validated_trxns_job = define_asset_job(
     name="full_refresh_validated_trxns",
     selection=AssetSelection.keys("fct_validated_trxns"),
+    description="Full refresh of only validated transactions table, combining historic data with manual user defined categories",
     config=RunConfig(
         ops={
             "dbt_models": {
@@ -116,14 +116,13 @@ full_refresh_validated_trxns_job = define_asset_job(
     ),
 )
 
-
 ingest_and_predict_job = define_asset_job(
     name="ingest_and_predict",
     selection=(
         AssetSelection.keys("simplefin_financial_data")
         .downstream()
-        # "load_to_postgres" -> "predict_transaction_categories" --> fct_trxns_with_predictions"
     ),
+    description="Load Simplefin financial data to db, run prediction model on all data"
 )
 
 run_all_dbt_models_job = define_asset_job(
@@ -131,6 +130,25 @@ run_all_dbt_models_job = define_asset_job(
     selection=AssetSelection.kind("dbt"),
 )
 
+rebuild_historic_data_job = define_asset_job(
+    name="rebuild_historic_data",
+    selection=(
+        AssetSelection.keys("historic_transactions") |
+        AssetSelection.keys("fct_validated_trxns") |
+        AssetSelection.kind("dbt") |
+        AssetSelection.keys("fct_validated_trxns").downstream()
+    ),
+    config=RunConfig(
+        ops={
+            "dbt_models": {
+                "config": {
+                    "full_refresh": True
+                }
+            }
+        }
+    ),
+    description="Runs historic dbt seed refresh, full refreshes validated transacitons, ",
+)
 
 # -------------------------
 # Definitions
@@ -152,5 +170,6 @@ definitions = Definitions(
         full_refresh_validated_trxns_job,
         ingest_and_predict_job,
         run_all_dbt_models_job,
+        rebuild_historic_data_job,
     ],
 )
