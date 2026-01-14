@@ -14,20 +14,6 @@ with source as (
     select pattern from {{ ref('seed_transaction_exclusions') }}
 )
 
--- Remove this eventually - Example record:
--- | TRN-9dfa4f94-01a6-4187-91a9-33ab3fa8c6ed
--- | ACT-df9d25cf-18fa-4b53-b07a-e901c5976179
--- | Student Checking
--- | www.wintrust.com
--- | Wintrust Community Banks
--- | -1348.30
--- | 1764590400
--- | 2025-12-01T12:00:00
--- | 1764590400
--- | 2025-12-01T12:00:00
--- | Zelle Payment to Anthony Wei
--- | f
-
 , final as (
 
     select

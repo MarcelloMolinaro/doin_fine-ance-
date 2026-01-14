@@ -70,6 +70,28 @@ Different institutions provide different volumes of historical transaction data:
 
 The SimpleFIN API enforces a **60-day maximum per request**, so historical data is fetched via pagination.
 
+### Example SimpleFIN Transaction Data
+
+Here's an example of what a transaction record looks like when extracted from SimpleFIN:
+
+```
+transaction_id     | TRN-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+account_id         | ACT-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+account_name       | Savings Account
+institution_domain | www.example-bank.com
+institution_name   | Example Bank
+amount             | 0.05
+posted             | 1764331200
+posted_date        | 2025-11-28T12:00:00
+transacted_at      | 1764331200
+transacted_date    | 2025-11-28T12:00:00
+description        | Interest Credit Income/Interest Income
+pending            | f
+import_timestamp   | 2025-12-07T08:53:35.218346
+import_date        | 2025-12-07
+extra              | 
+```
+
 ## Porting Configuration Data
 
 To port your configuration to a new instance, you only need:
