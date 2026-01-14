@@ -1551,6 +1551,12 @@ function App() {
 
     // Debounce the description filter input
     useEffect(() => {
+      if (descriptionFilterInput === '') {
+        // If clearing the filter, update immediately
+        setDescriptionFilter('')
+        return
+      }
+      
       const timer = setTimeout(() => {
         setDescriptionFilter(descriptionFilterInput)
         // Reset to first page when filter changes
@@ -1847,15 +1853,17 @@ function App() {
                     {showNotes && (
                       <td>
                         <input
+                          key={`notes-${transaction.transaction_id}`}
                           type="text"
                           placeholder="Add note..."
-                          value={notes[transaction.transaction_id] || ''}
-                          onChange={(e) => {
-                            const newNotes = { ...notes, [transaction.transaction_id]: e.target.value }
-                            setNotes(newNotes)
-                          }}
+                          defaultValue={notes[transaction.transaction_id] || ''}
                           onBlur={(e) => {
-                            handleNotesUpdate(transaction.transaction_id, e.target.value)
+                            const newValue = e.target.value
+                            setNotes(prevNotes => ({
+                              ...prevNotes,
+                              [transaction.transaction_id]: newValue
+                            }))
+                            handleNotesUpdate(transaction.transaction_id, newValue)
                           }}
                           className="notes-input"
                           style={{ width: '100%', padding: '4px 8px', border: '1px solid #ced4da', borderRadius: '4px' }}
@@ -2030,6 +2038,11 @@ function App() {
               {localDescriptionFilterInput && (
                 <button
                   onClick={() => {
+                    // Clear the ref first to prevent it from restoring the value
+                    if (transactionsPageFilterRef.current[viewMode]) {
+                      transactionsPageFilterRef.current[viewMode].input = ''
+                      transactionsPageFilterRef.current[viewMode].filter = ''
+                    }
                     setLocalDescriptionFilterInput('')
                     setLocalDescriptionFilter('')
                     setDescriptionFilter('')
@@ -2446,18 +2459,20 @@ function App() {
                   {showNotes && (
                     <td>
                       <input
+                        key={`notes-${transaction.transaction_id}`}
                         type="text"
                         placeholder="Add note..."
-                        value={notes[transaction.transaction_id] || ''}
-                        onChange={(e) => {
-                          const newNotes = { ...notes, [transaction.transaction_id]: e.target.value }
-                          setNotes(newNotes)
+                        defaultValue={notes[transaction.transaction_id] || ''}
+                        onBlur={(e) => {
+                          const newValue = e.target.value
+                          setNotes(prevNotes => ({
+                            ...prevNotes,
+                            [transaction.transaction_id]: newValue
+                          }))
+                          // Notes are stored in local state only until transaction is validated
+                          // The handleNotesUpdate function will check if validated before saving to DB
+                          handleNotesUpdate(transaction.transaction_id, newValue)
                         }}
-                      onBlur={(e) => {
-                        // Notes are stored in local state only until transaction is validated
-                        // The handleNotesUpdate function will check if validated before saving to DB
-                        handleNotesUpdate(transaction.transaction_id, e.target.value)
-                      }}
                         className="notes-input"
                         style={{ width: '100%', padding: '4px 8px', border: '1px solid #ced4da', borderRadius: '4px' }}
                       />
