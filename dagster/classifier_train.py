@@ -113,10 +113,13 @@ def train_transaction_classifier(context: AssetExecutionContext):
     context.log.info(f"Filtered out {lodging_mask.sum()} Lodging transactions without keywords")
     context.log.info(f"Training transactions: {len(df_train)}")
     
+    # Warn if training data is limited, but allow training to proceed
     if len(df_train) < 100:
-        raise ValueError(f"Not enough training data: {len(df_train)} transactions. Need at least 100.")
+        context.log.warning(
+            f"Limited training data: {len(df_train)} transactions (recommended: 100+). "
+            f"Model performance may be lower with fewer samples. Proceeding with training..."
+        )
     
-    # Note: Features are now loaded from dbt model (int_trxns_features)
     
     # Prepare features and target
     X_text = df_train['combined_text'].values
@@ -133,12 +136,27 @@ def train_transaction_classifier(context: AssetExecutionContext):
     context.log.info(f"Number of categories: {len(np.unique(y))}")
     context.log.info(f"Category distribution:\n{df_train['master_category'].value_counts()}")
     
-    # Split data: 80% train, 20% test (stratified)
+    # Check if we can use stratified splitting
+    # Stratified split requires at least one sample per class in both train and test sets
+    unique_categories = np.unique(y)
+    category_counts = pd.Series(y).value_counts()
+    min_samples_per_class = category_counts.min()
+    
+    # Use stratified split if we have enough samples, otherwise use regular split
+    use_stratify = min_samples_per_class >= 2  # Need at least 2 samples per class for 80/20 split
+    
+    if not use_stratify:
+        context.log.warning(
+            f"Some categories have fewer than 2 samples. Using non-stratified train/test split. "
+            f"Category counts: {dict(category_counts)}"
+        )
+    
+    # Split data: 80% train, 20% test (stratified if possible)
     X_train_text, X_test_text, X_train_numerical, X_test_numerical, y_train, y_test = train_test_split(
         X_text, X_numerical, y,
         test_size=0.2,
         random_state=42,
-        stratify=y  # Stratified to handle imbalanced classes
+        stratify=y if use_stratify else None  # Stratified to handle imbalanced classes when possible
     )
     
     context.log.info(f"Train set size: {len(X_train_text)}")
