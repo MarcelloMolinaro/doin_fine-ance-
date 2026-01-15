@@ -22,7 +22,7 @@ with source as (
         source.account_name,
         coalesce(
             account_mapping.mapped_account_name::text,
-            -- source.account_name, -- remove this if you want to force a mapping
+            source.account_name::text, -- comment out if you want to force a mapping
             'Missing mapping! Add to seed_account_mapping_simplefin.csv'
         ) as mapped_account_name,
         source.institution_domain,
