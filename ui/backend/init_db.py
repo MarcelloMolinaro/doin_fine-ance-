@@ -189,12 +189,101 @@ def init_user_categories_table():
         print("✓ user_categories table initialized successfully")
 
 
+def init_model_registry_table():
+    """Create model_registry table if it doesn't exist."""
+    with engine.connect() as conn:
+        # Create table with model metadata and full metrics JSONB
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS analytics.model_registry (
+                model_version TEXT PRIMARY KEY,
+                training_timestamp TIMESTAMP NOT NULL,
+                file_path TEXT,  -- NULL for skipped training attempts
+                metrics JSONB NOT NULL,
+                status TEXT NOT NULL DEFAULT 'trained',
+                is_active BOOLEAN DEFAULT FALSE,
+                is_latest BOOLEAN DEFAULT FALSE,
+                -- Denormalized fields for easy querying (also in metrics JSONB)
+                n_train_samples INTEGER,
+                n_test_samples INTEGER,
+                n_features INTEGER,
+                n_classes INTEGER,
+                accuracy NUMERIC,
+                macro_f1 NUMERIC,
+                weighted_f1 NUMERIC,
+                macro_precision NUMERIC,
+                macro_recall NUMERIC,
+                weighted_precision NUMERIC,
+                weighted_recall NUMERIC,
+                -- Additional metadata
+                reason TEXT,
+                message TEXT
+            )
+        """))
+        
+        # Create index on training_timestamp for time-based queries
+        try:
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_model_registry_training_timestamp 
+                ON analytics.model_registry(training_timestamp DESC)
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        
+        # Create index on is_active for finding active model
+        try:
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_model_registry_is_active 
+                ON analytics.model_registry(is_active) 
+                WHERE is_active = TRUE
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        
+        # Create index on is_latest for finding latest model
+        try:
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_model_registry_is_latest 
+                ON analytics.model_registry(is_latest) 
+                WHERE is_latest = TRUE
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        
+        # Create GIN index on metrics JSONB for efficient JSON queries
+        try:
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_model_registry_metrics_gin 
+                ON analytics.model_registry USING GIN (metrics)
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        
+        # Migration: If table exists with NOT NULL file_path, alter it to allow NULL
+        try:
+            conn.execute(text("""
+                ALTER TABLE analytics.model_registry 
+                ALTER COLUMN file_path DROP NOT NULL
+            """))
+            conn.commit()
+        except Exception:
+            # Column might already be nullable, or table might not exist yet (will be created with NULL allowed)
+            conn.rollback()
+        
+        conn.commit()
+        print("✓ model_registry table initialized successfully")
+
+
 def init_all_tables():
     """Initialize all required database tables and schemas."""
     init_analytics_schema()
     init_predicted_transactions_table()
     init_simplefin_table()
     init_user_categories_table()
+    init_model_registry_table()
     print("✓ All database tables initialized successfully")
 
 if __name__ == "__main__":

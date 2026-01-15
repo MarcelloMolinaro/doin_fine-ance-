@@ -1,2 +1,20 @@
 # dagster.yaml
-# Minimal Dagster instance configuration
+# Dagster instance configuration using Postgres for storage
+# This configures run storage, event log storage, and schedule storage to use Postgres
+
+storage:
+  postgres:
+    postgres_db:
+      hostname: postgres
+      port: 5432
+      username: dagster
+      password: dagster
+      db_name: dagster
+
+# Compute logs are still stored locally (standard practice)
+# These can be changed to S3/GCS later if needed
+compute_logs:
+  module: dagster.core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: /opt/dagster/app/storage/compute_logs
