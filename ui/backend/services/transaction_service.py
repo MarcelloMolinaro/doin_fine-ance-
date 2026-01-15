@@ -231,13 +231,29 @@ def get_categories(db: Session) -> List[str]:
         # Table might not exist yet, that's okay
         pass
     
-    # Add common categories if the list is empty (fallback)
-    if not categories:
-        categories = {
-            "Groceries", "Income", "Bars & Restaurants",
-            "Auto & Transport", "Bills & Utilities", "Rent", "Entertainment",
-            "Shopping", "Travel", "Gas & Fuel", "Coffee Shops"
-        }
+    # Always include default/common categories as a base set
+    default_categories = {
+        "Dining out",
+        "Donation",
+        "Flight",
+        "Fun!™",
+        "Gas",
+        "Groceries",
+        "Health care",
+        "Home",
+        "Income",
+        "Insurance",
+        "Interest",
+        "Investments",
+        "Miscellaneous",
+        "Professional development",
+        "Rent",
+        "Shopping",
+        "Transfers",
+        "Transportation",
+        "Utilities"
+    }
+    categories.update(default_categories)
     
     # Filter out UNCERTAIN - users don't need to assign this category
     categories.discard('UNCERTAIN')
