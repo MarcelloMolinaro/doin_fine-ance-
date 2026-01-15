@@ -80,7 +80,15 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     
     context.log.info(f"Predicting categories for {len(df)} transactions")
     
-    X_text = df['combined_text'].values
+    # Filter out rows with null amounts
+    df = df[df['amount'].notna()].copy()
+    
+    if len(df) == 0:
+        context.log.info("No transactions with valid amounts to predict")
+        return {"n_predictions": 0}
+    
+    # Prepare features - fill NaN values
+    X_text = df['combined_text'].fillna('').values
     X_numerical = df[[
         'amount', 'is_negative', 
         'day_of_week', 'day_of_month',
@@ -88,7 +96,7 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
         'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
         'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword',
         'has_flight_keyword', 'has_credit_fee_keyword', 'has_interest_keyword'
-    ]].values
+    ]].fillna(0).values
     
     # Transform features
     X_text_vec = text_vectorizer.transform(X_text)
