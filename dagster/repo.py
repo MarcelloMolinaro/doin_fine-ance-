@@ -93,45 +93,42 @@ def dbt_models(context: AssetExecutionContext, dbt: DbtCliResource, config: DbtM
 # Jobs
 # -------------------------
 
+dagster_init_job = define_asset_job(
+    name="1_dagster_init",
+    selection=(
+        # Ingest & predict: simplefin data ingestion and predictions
+        AssetSelection.keys("simplefin_financial_data").downstream() |
+        # Run all dbt models
+        AssetSelection.kind("dbt") |
+        # Refresh validated transactions and retrain/re-predict
+        AssetSelection.keys("fct_validated_trxns").downstream()
+    ),
+    description="Complete initialization pipeline: ingest & predict -> run all dbt models -> refresh validated transactions & retrain",
+)
+
+ingest_and_predict_job = define_asset_job(
+    name="2_ingest_and_predict",
+    selection=(
+        AssetSelection.keys("simplefin_financial_data").downstream()
+    ),
+    description="Load Simplefin financial data to db, run prediction model on all data"
+)
+
+run_all_dbt_models_job = define_asset_job(
+    name="3_run_all_dbt_models",
+    selection=AssetSelection.kind("dbt"),
+)
+
 refresh_validated_trxns_job = define_asset_job(
-    name="refresh_validated_trxns",
+    name="4_refresh_validated_retrain_repredict",
     selection=(
         AssetSelection.keys("fct_validated_trxns").downstream()
     ),
     description="Runs incremental refresh of validated transactions table, retrains the model, and re-runs predicitions",
 )
 
-full_refresh_validated_trxns_job = define_asset_job(
-    name="full_refresh_validated_trxns",
-    selection=AssetSelection.keys("fct_validated_trxns"),
-    description="Full refresh of only validated transactions table, combining historic data with manual user defined categories",
-    config=RunConfig(
-        ops={
-            "dbt_models": {
-                "config": {
-                    "full_refresh": True
-                }
-            }
-        }
-    ),
-)
-
-ingest_and_predict_job = define_asset_job(
-    name="ingest_and_predict",
-    selection=(
-        AssetSelection.keys("simplefin_financial_data")
-        .downstream()
-    ),
-    description="Load Simplefin financial data to db, run prediction model on all data"
-)
-
-run_all_dbt_models_job = define_asset_job(
-    name="run_all_dbt_models",
-    selection=AssetSelection.kind("dbt"),
-)
-
 rebuild_historic_data_job = define_asset_job(
-    name="rebuild_historic_data",
+    name="z_a_rebuild_historic_data",
     selection=(
         AssetSelection.keys("historic_transactions") |
         AssetSelection.keys("fct_validated_trxns") |
@@ -147,7 +144,22 @@ rebuild_historic_data_job = define_asset_job(
             }
         }
     ),
-    description="Runs historic dbt seed refresh, full refreshes validated transacitons, ",
+    description="Runs historic dbt seed refresh, full refreshes validated transacitons - Use when updating your historic seed data",
+)
+
+full_refresh_validated_trxns_job = define_asset_job(
+    name="z_b_full_refresh_validated_trxns",
+    selection=AssetSelection.keys("fct_validated_trxns"),
+    description="Full refresh of only validated transactions table, combining historic data with manual user defined categories",
+    config=RunConfig(
+        ops={
+            "dbt_models": {
+                "config": {
+                    "full_refresh": True
+                }
+            }
+        }
+    ),
 )
 
 # -------------------------
@@ -166,10 +178,11 @@ definitions = Definitions(
         "dbt": dbt_resource,
     },
     jobs=[
-        refresh_validated_trxns_job,
-        full_refresh_validated_trxns_job,
+        dagster_init_job,
         ingest_and_predict_job,
         run_all_dbt_models_job,
+        refresh_validated_trxns_job,
         rebuild_historic_data_job,
+        full_refresh_validated_trxns_job,
     ],
 )

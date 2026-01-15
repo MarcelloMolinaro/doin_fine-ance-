@@ -48,7 +48,7 @@ This pipeline has one incremental model: `fct_validated_trxns`. To run it with `
 
 ### Option 1: Via Dagster UI - Use the Full-Refresh Job (Recommended)
 1. Go to the Jobs page in Dagster UI (http://localhost:3000)
-2. Find the `full_refresh_validated_trxns` job
+2. Find the `z_b_full_refresh_validated_trxns` job
 3. Click on the job and go to the Launchpad
 4. Click "Launch Run" to execute (pre-configured for full-refresh)
 

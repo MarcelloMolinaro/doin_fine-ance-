@@ -39,7 +39,7 @@ def trigger_ingest_and_predict_job():
     dagster_url = os.getenv("DAGSTER_URL", "http://dagster:3000")
     graphql_url = f"{dagster_url}/graphql"
     
-    logger.info(f"Attempting to trigger ingest_and_predict job at {graphql_url}")
+    logger.info(f"Attempting to trigger 2_ingest_and_predict job at {graphql_url}")
     
     # GraphQL mutation to launch the job
     mutation_launch_run = """
@@ -82,7 +82,7 @@ def trigger_ingest_and_predict_job():
     """
     
     variables = {
-        "jobName": "ingest_and_predict",
+        "jobName": "2_ingest_and_predict",
         "repositoryLocationName": "repo.py",
         "repositoryName": "__repository__"
     }
@@ -145,7 +145,7 @@ def trigger_ingest_and_predict_job():
                 logger.error(f"PipelineNotFoundError from Dagster: {error_msg}")
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Job 'ingest_and_predict' not found in Dagster. Make sure the job is registered."
+                    detail=f"Job '2_ingest_and_predict' not found in Dagster. Make sure the job is registered."
                 )
             elif launch_result.get("__typename") == "RunConfigValidationInvalid":
                 errors = launch_result.get("errors", [])
@@ -205,7 +205,7 @@ def get_simplefin_warnings(limit: int = 50):
 
 
 def _get_warnings_from_asset_runs(client, graphql_url, limit):
-    """Get all WARNING level logs from the most recent ingest_and_predict job run."""
+    """Get all WARNING level logs from the most recent 2_ingest_and_predict job run."""
     warnings = []
     step_key = "simplefin_financial_data"
     

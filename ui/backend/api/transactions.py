@@ -190,7 +190,7 @@ def trigger_refresh_validated_trxns():
     
     # Known values from workspace.yaml and Dagster's default repository naming
     variables = {
-        "jobName": "refresh_validated_trxns",
+        "jobName": "4_refresh_validated_retrain_repredict",
         "repositoryLocationName": "repo.py",
         "repositoryName": "__repository__"  # Dagster's default when loading from python_file
     }
@@ -254,7 +254,7 @@ def trigger_refresh_validated_trxns():
                 logger.error(f"PipelineNotFoundError from Dagster: {error_msg}. Full result: {launch_result}")
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Job 'refresh_validated_trxns' not found in Dagster. Make sure the job is registered. Error: {error_msg}"
+                    detail=f"Job '4_refresh_validated_retrain_repredict' not found in Dagster. Make sure the job is registered. Error: {error_msg}"
                 )
             elif launch_result.get("__typename") == "RunConfigValidationInvalid":
                 errors = launch_result.get("errors", [])

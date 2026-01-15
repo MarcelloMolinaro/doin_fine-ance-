@@ -119,7 +119,7 @@ select * from public.user_categories order by updated_at desc;
 TRUNCATE TABLE public.user_categories;
 ```
 
-**Warning**: After running this and re-materializing your fct_validated_trxns model using the http://localhost:3000/locations/repo.py/jobs/full_refresh_validated_trxns job, you will only have categorized transaction that were in your user_categories table and your historic data.
+**Warning**: After running this and re-materializing your fct_validated_trxns model using the http://localhost:3000/locations/repo.py/jobs/z_b_full_refresh_validated_trxns job, you will only have categorized transaction that were in your user_categories table and your historic data.
 ```sql
 -- Removes all data from the validated table
 TRUNCATE TABLE analytics.fct_validated_trxns;
