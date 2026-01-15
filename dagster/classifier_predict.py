@@ -57,16 +57,62 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     """
     engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
     
-    # Load latest model
-    model_path = Path("/opt/dagster/app/models/transaction_classifier_latest.pkl")
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model not found at {model_path}. Train the model first.")
+    # Load latest active model from registry
+    with engine.connect() as conn:
+        result = conn.execute(text("""
+            SELECT model_version, file_path, status
+            FROM analytics.model_registry
+            WHERE is_active = TRUE AND status = 'trained'
+            ORDER BY training_timestamp DESC
+            LIMIT 1
+        """))
+        row = result.fetchone()
+        
+        if row is None:
+            # Fallback: try to find latest model (even if not marked active)
+            context.log.warning("No active model found, trying latest trained model")
+            result = conn.execute(text("""
+                SELECT model_version, file_path, status
+                FROM analytics.model_registry
+                WHERE status = 'trained' AND file_path IS NOT NULL
+                ORDER BY training_timestamp DESC
+                LIMIT 1
+            """))
+            row = result.fetchone()
+        
+        if row is None:
+            # Final fallback: try old file-based path
+            model_path = Path("/opt/dagster/app/models/transaction_classifier_latest.pkl")
+            if not model_path.exists():
+                raise FileNotFoundError(
+                    "No model found in registry or at default path. Train the model first."
+                )
+            context.log.warning(f"Using fallback model path: {model_path}")
+            model_version = "unknown"
+            pipeline = joblib.load(model_path)
+            # Extract version from pipeline if available
+            model_version = pipeline.get('model_version', 'unknown')
+        else:
+            model_version, file_path, status = row
+            if status != 'trained':
+                raise ValueError(f"Model {model_version} is not trained (status: {status}). Train the model first.")
+            
+            if file_path is None:
+                raise ValueError(f"Model {model_version} has no file path. Train the model first.")
+            
+            model_path = Path(file_path)
+            if not model_path.exists():
+                raise FileNotFoundError(
+                    f"Model file not found at {file_path} for version {model_version}. "
+                    "The file may have been moved or deleted."
+                )
+            
+            pipeline = joblib.load(model_path)
+            context.log.info(f"Loaded model from registry (version: {model_version}, path: {file_path})")
     
-    pipeline = joblib.load(model_path)
     text_vectorizer = pipeline['text_vectorizer']
     numerical_scaler = pipeline['numerical_scaler']
     classifier = pipeline['classifier']
-    model_version = pipeline.get('model_version', 'unknown')  # Get version or default to 'unknown'
     
     context.log.info(f"Model loaded successfully (version: {model_version})")
     

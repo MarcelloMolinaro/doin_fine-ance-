@@ -124,18 +124,73 @@ def train_transaction_classifier(context: AssetExecutionContext):
             f"Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for model training. "
             "Skipping model training. Categorize more transactions first."
         )
+        
+        # Record skipped training in model_registry
+        model_version = datetime.now().strftime('%Y%m%d_%H%M%S')
+        training_timestamp = datetime.now()
+        metrics = {
+            'model_version': None,
+            'training_date': training_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'status': 'skipped',
+            'reason': 'insufficient_data',
+            'message': f'Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for training.',
+            'n_available': len(df_train),
+            'n_required': 50
+        }
+        
+        try:
+            with engine.connect() as conn:
+                # Unset previous is_latest flags BEFORE inserting (but don't unset is_active for trained models)
+                conn.execute(text("""
+                    UPDATE analytics.model_registry 
+                    SET is_latest = FALSE 
+                    WHERE is_latest = TRUE
+                """))
+                
+                # Insert skipped training record
+                conn.execute(text("""
+                    INSERT INTO analytics.model_registry (
+                        model_version,
+                        training_timestamp,
+                        file_path,
+                        metrics,
+                        status,
+                        is_active,
+                        is_latest,
+                        reason,
+                        message
+                    ) VALUES (
+                        :model_version,
+                        :training_timestamp,
+                        :file_path,
+                        CAST(:metrics AS JSONB),
+                        :status,
+                        :is_active,
+                        :is_latest,
+                        :reason,
+                        :message
+                    )
+                """), {
+                    'model_version': model_version,
+                    'training_timestamp': training_timestamp,
+                    'file_path': None,
+                    'metrics': json.dumps(metrics),
+                    'status': 'skipped',
+                    'is_active': False,  # Don't activate skipped models
+                    'is_latest': True,  # Track skipped runs as latest attempt
+                    'reason': 'insufficient_data',
+                    'message': f'Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for training.'
+                })
+                conn.commit()
+            
+            context.log.info(f"Skipped training recorded in model_registry (version: {model_version})")
+        except Exception as e:
+            context.log.warning(f"Failed to record skipped training in registry: {e}")
+        
         engine.dispose()
         return {
             'model_path': None,
-            'metrics': {
-                'model_version': None,
-                'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'status': 'skipped',
-                'reason': 'insufficient_data',
-                'message': f'Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for training.',
-                'n_available': len(df_train),
-                'n_required': 50
-            },
+            'metrics': metrics,
             'n_training_samples': len(df_train),
             'n_test_samples': 0,
             'accuracy': None,
@@ -274,10 +329,14 @@ def train_transaction_classifier(context: AssetExecutionContext):
                     'prob_pred': prob_pred.tolist()
                 }
     
+    # Generate model version (timestamp-based)
+    model_version = datetime.now().strftime('%Y%m%d_%H%M%S')
+    training_timestamp = datetime.now()
+    
     # Prepare metrics summary
     metrics = {
-        'model_version': datetime.now().isoformat(),
-        'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'model_version': model_version,
+        'training_date': training_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
         'n_train_samples': len(X_train_text),
         'n_test_samples': len(X_test_text),
         'n_features': X_train.shape[1],
@@ -295,7 +354,6 @@ def train_transaction_classifier(context: AssetExecutionContext):
     
     # Save model artifact
     model_storage = create_model_storage_path()
-    model_version = datetime.now().strftime('%Y%m%d_%H%M%S')
     
     # Save full pipeline (vectorizer, scaler, classifier)
     pipeline = {
@@ -315,7 +373,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
     model_path = model_storage / f"transaction_classifier_{model_version}.pkl"
     joblib.dump(pipeline, model_path)
     
-    # Save metrics
+    # Save metrics JSON file (for backward compatibility and local access)
     metrics_path = model_storage / f"metrics_{model_version}.json"
     with open(metrics_path, 'w') as f:
         json.dump(metrics, f, indent=2)
@@ -336,6 +394,83 @@ def train_transaction_classifier(context: AssetExecutionContext):
     
     context.log.info(f"Model saved to: {model_path}")
     context.log.info(f"Metrics saved to: {metrics_path}")
+    
+    # Save to model_registry table in Postgres
+    try:
+        with engine.connect() as conn:
+            # Unset previous is_latest and is_active flags BEFORE inserting new model
+            conn.execute(text("""
+                UPDATE analytics.model_registry 
+                SET is_latest = FALSE, is_active = FALSE
+                WHERE is_latest = TRUE OR is_active = TRUE
+            """))
+            
+            # Insert new model into registry
+            conn.execute(text("""
+                INSERT INTO analytics.model_registry (
+                    model_version,
+                    training_timestamp,
+                    file_path,
+                    metrics,
+                    status,
+                    is_active,
+                    is_latest,
+                    n_train_samples,
+                    n_test_samples,
+                    n_features,
+                    n_classes,
+                    accuracy,
+                    macro_f1,
+                    weighted_f1,
+                    macro_precision,
+                    macro_recall,
+                    weighted_precision,
+                    weighted_recall
+                ) VALUES (
+                    :model_version,
+                    :training_timestamp,
+                    :file_path,
+                    CAST(:metrics AS JSONB),
+                    :status,
+                    :is_active,
+                    :is_latest,
+                    :n_train_samples,
+                    :n_test_samples,
+                    :n_features,
+                    :n_classes,
+                    :accuracy,
+                    :macro_f1,
+                    :weighted_f1,
+                    :macro_precision,
+                    :macro_recall,
+                    :weighted_precision,
+                    :weighted_recall
+                )
+            """), {
+                'model_version': model_version,
+                'training_timestamp': training_timestamp,
+                'file_path': str(model_path),
+                'metrics': json.dumps(metrics),
+                'status': 'trained',
+                'is_active': True,  # Set new model as active
+                'is_latest': True,  # Set new model as latest
+                'n_train_samples': len(X_train_text),
+                'n_test_samples': len(X_test_text),
+                'n_features': X_train.shape[1],
+                'n_classes': len(np.unique(y)),
+                'accuracy': float(accuracy),
+                'macro_f1': float(macro_f1),
+                'weighted_f1': float(weighted_f1),
+                'macro_precision': float(macro_precision),
+                'macro_recall': float(macro_recall),
+                'weighted_precision': float(weighted_precision),
+                'weighted_recall': float(weighted_recall)
+            })
+            conn.commit()
+        
+        context.log.info(f"Model registered in model_registry table (version: {model_version})")
+    except Exception as e:
+        context.log.warning(f"Failed to save model to registry: {e}. Model files saved locally.")
     
     engine.dispose()
     
