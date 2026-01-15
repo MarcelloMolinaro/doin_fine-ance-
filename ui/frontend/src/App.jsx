@@ -32,6 +32,8 @@ function App() {
   const [warnings, setWarnings] = useState([])
   const [loadingWarnings, setLoadingWarnings] = useState(true)
   const [warningsError, setWarningsError] = useState(null)
+  const [trainingStatus, setTrainingStatus] = useState(null)
+  const [loadingTrainingStatus, setLoadingTrainingStatus] = useState(false)
 
   useEffect(() => {
     setCurrentPage(1) // Reset to first page when view mode changes
@@ -41,7 +43,23 @@ function App() {
   useEffect(() => {
     fetchTransactions()
     fetchCategories()
+    if (viewMode === 'unvalidated_predicted') {
+      fetchTrainingStatus()
+    }
   }, [viewMode, currentPage, descriptionFilter])
+  
+  const fetchTrainingStatus = async () => {
+    try {
+      setLoadingTrainingStatus(true)
+      const response = await axios.get(`${API_BASE_URL}/api/model/training-status`)
+      setTrainingStatus(response.data)
+    } catch (err) {
+      console.error('Failed to load training status:', err)
+      // Don't set error state - this is not critical
+    } finally {
+      setLoadingTrainingStatus(false)
+    }
+  }
 
   const fetchWarnings = async () => {
     try {
@@ -2017,6 +2035,34 @@ function App() {
               </label>
             </div>
           </div>
+
+          {/* Training Status Message - Show in Unvalidated - Predicted tab if training was skipped */}
+          {viewMode === 'unvalidated_predicted' && trainingStatus && trainingStatus.status === 'skipped' && (
+            <div style={{
+              marginTop: '15px',
+              padding: '15px',
+              backgroundColor: '#fff3cd',
+              border: '1px solid #ffc107',
+              borderRadius: '4px',
+              color: '#856404'
+            }}>
+              <div style={{ fontWeight: '600', marginBottom: '8px' }}>
+                ⚠️ Model Training Not Available
+              </div>
+              <div style={{ fontSize: '0.9rem', lineHeight: '1.5' }}>
+                {trainingStatus.message || 'Model training requires at least 50 validated transactions.'}
+                {trainingStatus.n_available !== undefined && trainingStatus.n_required !== undefined && (
+                  <span style={{ display: 'block', marginTop: '6px' }}>
+                    You currently have <strong>{trainingStatus.n_available}</strong> validated transaction{trainingStatus.n_available !== 1 ? 's' : ''}. 
+                    You need <strong>{trainingStatus.n_required}</strong> to train the model.
+                  </span>
+                )}
+                <span style={{ display: 'block', marginTop: '8px', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                  Categorize and validate more transactions to enable automatic predictions.
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Search and Filter Section */}
           <div style={{ marginTop: '15px', marginBottom: '15px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>

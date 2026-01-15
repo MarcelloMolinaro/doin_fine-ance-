@@ -37,6 +37,17 @@ class MetricsHistoryResponse(BaseModel):
     total_count: int
 
 
+class TrainingStatusResponse(BaseModel):
+    """Response schema for latest training status."""
+    status: str  # 'trained', 'skipped', 'not_found'
+    reason: Optional[str] = None  # 'no_training_data', 'insufficient_data', etc.
+    message: Optional[str] = None
+    training_date: Optional[str] = None
+    n_available: Optional[int] = None
+    n_required: Optional[int] = None
+    model_version: Optional[str] = None
+
+
 def parse_timestamp_from_filename(filename: str) -> Optional[datetime]:
     """Extract timestamp from metrics filename like metrics_20251230_055027.json."""
     try:
@@ -152,4 +163,56 @@ def get_metrics_history():
     
     logger.info(f"Successfully loaded {len(metrics_data)} metrics data points")
     return MetricsHistoryResponse(metrics=metrics_data, total_count=len(metrics_data))
+
+
+@router.get("/training-status", response_model=TrainingStatusResponse)
+def get_training_status():
+    """Get the latest training status, including if training was skipped."""
+    metrics_dir = get_metrics_directory()
+    
+    if not os.path.exists(metrics_dir):
+        return TrainingStatusResponse(
+            status='not_found',
+            message='Metrics directory not found'
+        )
+    
+    # Check for latest metrics file
+    latest_metrics_path = os.path.join(metrics_dir, "metrics_latest.json")
+    
+    if not os.path.exists(latest_metrics_path):
+        return TrainingStatusResponse(
+            status='not_found',
+            message='No training has been performed yet'
+        )
+    
+    try:
+        with open(latest_metrics_path, 'r') as f:
+            data = json.load(f)
+        
+        # Check if training was skipped
+        if data.get('status') == 'skipped':
+            return TrainingStatusResponse(
+                status='skipped',
+                reason=data.get('reason', 'unknown'),
+                message=data.get('message', 'Training was skipped'),
+                training_date=data.get('training_date'),
+                n_available=data.get('n_available'),
+                n_required=data.get('n_required', 50)
+            )
+        
+        # Training was successful
+        return TrainingStatusResponse(
+            status='trained',
+            training_date=data.get('training_date'),
+            model_version=data.get('model_version'),
+            n_available=data.get('n_train_samples'),
+            n_required=50
+        )
+        
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"Error reading latest metrics file: {e}")
+        return TrainingStatusResponse(
+            status='not_found',
+            message=f'Error reading training status: {str(e)}'
+        )
 

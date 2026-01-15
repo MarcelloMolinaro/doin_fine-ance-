@@ -90,36 +90,53 @@ def train_transaction_classifier(context: AssetExecutionContext):
     df_train = df_train[df_train['amount'].notna()].copy()
     
     # Filter out transactions before 2022
-    df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
-    initial_count = len(df_train)
-    df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
-    filtered_old = initial_count - len(df_train)
-    
-    if filtered_old > 0:
-        context.log.info(f"Filtered out {filtered_old} transactions before 2022")
-    
-    # Filter Lodging: only keep if description contains specific keywords
-    lodging_mask = (
-        df_train['master_category'] == 'Lodging'
-    ) & (
-        ~df_train['description'].fillna('').str.lower().str.contains(
-            'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
+    if len(df_train) > 0:
+        df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
+        initial_count = len(df_train)
+        df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
+        filtered_old = initial_count - len(df_train)
+        
+        if filtered_old > 0:
+            context.log.info(f"Filtered out {filtered_old} transactions before 2022")
+        
+        # Filter Lodging: only keep if description contains specific keywords
+        lodging_mask = (
+            df_train['master_category'] == 'Lodging'
+        ) & (
+            ~df_train['description'].fillna('').str.lower().str.contains(
+                'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
+            )
         )
-    )
 
-    # Exclude Lodging transactions that don't match keywords
-    df_train = df_train[~lodging_mask].copy()
+        # Exclude Lodging transactions that don't match keywords
+        df_train = df_train[~lodging_mask].copy()
 
-    context.log.info(f"Filtered out {lodging_mask.sum()} Lodging transactions without keywords")
+        context.log.info(f"Filtered out {lodging_mask.sum()} Lodging transactions without keywords")
     context.log.info(f"Training transactions: {len(df_train)}")
     
-    # Warn if training data is limited, but allow training to proceed
-    if len(df_train) < 100:
+    # Check if we have enough training data (need at least 50 samples for meaningful training)
+    if len(df_train) < 50:
         context.log.warning(
-            f"Limited training data: {len(df_train)} transactions (recommended: 100+). "
-            f"Model performance may be lower with fewer samples. Proceeding with training..."
+            f"Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for model training. "
+            "Skipping model training. Categorize more transactions first."
         )
-    
+        engine.dispose()
+        return {
+            'model_path': None,
+            'metrics': {
+                'model_version': None,
+                'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'status': 'skipped',
+                'reason': 'insufficient_data',
+                'message': f'Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for training.',
+                'n_available': len(df_train),
+                'n_required': 50
+            },
+            'n_training_samples': len(df_train),
+            'n_test_samples': 0,
+            'accuracy': None,
+            'macro_f1': None
+        }
     
     # Prepare features and target
     X_text = df_train['combined_text'].values
