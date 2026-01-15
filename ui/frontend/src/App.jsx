@@ -34,6 +34,9 @@ function App() {
   const [warningsError, setWarningsError] = useState(null)
   const [trainingStatus, setTrainingStatus] = useState(null)
   const [loadingTrainingStatus, setLoadingTrainingStatus] = useState(false)
+  const [needsInitialization, setNeedsInitialization] = useState(false)
+  const [loadingInitStatus, setLoadingInitStatus] = useState(true)
+  const [triggeringInit, setTriggeringInit] = useState(false)
 
   useEffect(() => {
     setCurrentPage(1) // Reset to first page when view mode changes
@@ -78,8 +81,48 @@ function App() {
   useEffect(() => {
     if (activeTab === 'control-center') {
       fetchWarnings()
+      fetchInitializationStatus()
     }
   }, [activeTab])
+
+  const fetchInitializationStatus = async () => {
+    try {
+      setLoadingInitStatus(true)
+      const response = await axios.get(`${API_BASE_URL}/api/control-center/initialization-status`)
+      setNeedsInitialization(response.data.needs_initialization || false)
+    } catch (err) {
+      console.error('Failed to load initialization status:', err)
+      // Assume we need initialization if we can't check
+      setNeedsInitialization(true)
+    } finally {
+      setLoadingInitStatus(false)
+    }
+  }
+
+  const handleTriggerInitialization = async () => {
+    try {
+      setTriggeringInit(true)
+      setError(null)
+      setSuccess(null)
+
+      const response = await axios.post(`${API_BASE_URL}/api/control-center/trigger-initialization`)
+      
+      if (response.data.success) {
+        setSuccess(`Initialization job triggered successfully! Run ID: ${response.data.run_id}. This may take several minutes.`)
+        // Refresh initialization status after a delay
+        setTimeout(() => {
+          fetchInitializationStatus()
+        }, 5000)
+      } else {
+        setError(response.data.message || 'Failed to trigger initialization')
+      }
+    } catch (err) {
+      setError(`Failed to trigger initialization: ${err.response?.data?.detail || err.message}`)
+      console.error(err)
+    } finally {
+      setTriggeringInit(false)
+    }
+  }
 
   const fetchTransactions = async () => {
     try {
@@ -485,8 +528,14 @@ function App() {
   }
 
   const handleRefreshValidatedTrxns = async () => {
-    // Confirmation popup
-    if (!window.confirm("You Sure Dawg?")) {
+    // Confirmation popup with clear warning
+    const confirmed = window.confirm(
+      "Run Validated Transactions Pipeline\n\n" +
+      "Note: This will commit validated transactions to the All Data tab, retrain the model on that data, and re-predict categories for uncategorized transactions.\n\n" +
+      "Do you want to continue?"
+    )
+    
+    if (!confirmed) {
       return
     }
 
@@ -498,7 +547,7 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/api/transactions/trigger-refresh-validated`)
       
       if (response.data.success) {
-        setSuccess(`Dagster job triggered successfully! Run ID: ${response.data.run_id}`)
+        setSuccess(`Refresh job triggered successfully! Run ID: ${response.data.run_id}. This may take several minutes to complete.`)
       } else {
         setError(response.data.message || 'Failed to trigger refresh')
       }
@@ -875,6 +924,70 @@ function App() {
           <h1>Control Center</h1>
           <p>Manage data ingestion and monitor system status.</p>
         </div>
+
+        {/* Initialization Section - Only shows when needed */}
+        {!loadingInitStatus && needsInitialization && (
+          <div style={{ 
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+            padding: '30px', 
+            borderRadius: '8px', 
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+            marginBottom: '30px',
+            color: 'white'
+          }}>
+            <h2 style={{ marginTop: 0, marginBottom: '15px', fontSize: '1.75rem', color: 'white' }}>
+              🚀 Welcome! Let's Get Started
+            </h2>
+            <p style={{ color: 'rgba(255, 255, 255, 0.95)', marginBottom: '20px', fontSize: '1.05rem', lineHeight: '1.6' }}>
+              It looks like this is your first time using the app. Click the button below to initialize the pipeline. 
+              This will set up all the necessary tables, run your dbt models, and prepare everything for transaction categorization.
+            </p>
+            <p style={{ color: 'rgba(255, 255, 255, 0.9)', marginBottom: '25px', fontSize: '0.95rem', fontStyle: 'italic' }}>
+              This process may take several minutes depending on the amount of data. Please be patient.
+            </p>
+            
+            {error && (
+              <div className="error" style={{ marginBottom: '15px', backgroundColor: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>{error}</div>
+            )}
+            
+            {success && (
+              <div className="success" style={{ marginBottom: '15px', backgroundColor: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>{success}</div>
+            )}
+
+            <button
+              className="btn btn-primary"
+              onClick={handleTriggerInitialization}
+              disabled={triggeringInit}
+              style={{
+                padding: '14px 32px',
+                backgroundColor: 'white',
+                color: '#667eea',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: triggeringInit ? 'not-allowed' : 'pointer',
+                fontSize: '1.1rem',
+                fontWeight: '600',
+                opacity: triggeringInit ? 0.7 : 1,
+                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (!triggeringInit) {
+                  e.target.style.transform = 'translateY(-2px)'
+                  e.target.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!triggeringInit) {
+                  e.target.style.transform = 'translateY(0)'
+                  e.target.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)'
+                }
+              }}
+            >
+              {triggeringInit ? 'Initializing...' : 'Initialize Pipeline'}
+            </button>
+          </div>
+        )}
 
         {/* Job Trigger Section */}
         <div style={{ 
@@ -2047,10 +2160,9 @@ function App() {
               color: '#856404'
             }}>
               <div style={{ fontWeight: '600', marginBottom: '8px' }}>
-                ⚠️ Model Training Not Available
+                ⚠️ Predict Categories Not Available
               </div>
               <div style={{ fontSize: '0.9rem', lineHeight: '1.5' }}>
-                {trainingStatus.message || 'Model training requires at least 50 validated transactions.'}
                 {trainingStatus.n_available !== undefined && trainingStatus.n_required !== undefined && (
                   <span style={{ display: 'block', marginTop: '6px' }}>
                     You currently have <strong>{trainingStatus.n_available}</strong> validated transaction{trainingStatus.n_available !== 1 ? 's' : ''}. 
@@ -2058,7 +2170,7 @@ function App() {
                   </span>
                 )}
                 <span style={{ display: 'block', marginTop: '8px', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                  Categorize and validate more transactions to enable automatic predictions.
+                  Categorize then Validate more transactions to enable predictions.
                 </span>
               </div>
             </div>
@@ -2108,27 +2220,55 @@ function App() {
               )}
             </div>
             {viewMode === 'validated' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '10px',
+                padding: '10px 12px',
+                backgroundColor: '#fff3cd',
+                border: '1px solid #ffc107',
+                borderRadius: '4px',
+                marginBottom: '10px'
+              }}>
                 <button
                   className="btn btn-primary"
                   onClick={handleRefreshValidatedTrxns}
                   disabled={refreshingValidated}
                   style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#dc3545',
+                    padding: '8px 16px',
+                    backgroundColor: '#ff9800',
                     color: 'white',
                     border: 'none',
                     borderRadius: '4px',
                     cursor: refreshingValidated ? 'not-allowed' : 'pointer',
                     fontSize: '0.875rem',
-                    fontWeight: '500',
-                    opacity: refreshingValidated ? 0.6 : 1
+                    fontWeight: '600',
+                    opacity: refreshingValidated ? 0.6 : 1,
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!refreshingValidated) {
+                      e.target.style.backgroundColor = '#f57c00'
+                      e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.16)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!refreshingValidated) {
+                      e.target.style.backgroundColor = '#ff9800'
+                      e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)'
+                    }
                   }}
                 >
-                  {refreshingValidated ? 'Refreshing...' : 'Refresh Validated'}
+                  {refreshingValidated ? 'Refreshing...' : 'Refresh Validated Transactions'}
                 </button>
-                <span style={{ color: '#dc3545', fontSize: '0.75rem', fontWeight: '500' }}>
-                  ⚠️ NOT reversible
+                <span style={{ 
+                  color: '#856404', 
+                  fontSize: '0.8rem', 
+                  lineHeight: '1.4',
+                  flex: 1
+                }}>
+                  ⚠️ This will rerun the validation pipeline. The process may take a few minutes. Refresh the page manually.
                 </span>
               </div>
             )}

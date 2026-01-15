@@ -5,6 +5,8 @@ from typing import List, Optional
 import httpx
 import os
 import logging
+from sqlalchemy import text
+from db.connection import engine
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -31,6 +33,12 @@ class WarningsResponse(BaseModel):
     """Response schema for warnings."""
     warnings: List[WarningInfo]
     total_count: int
+
+
+class InitializationStatusResponse(BaseModel):
+    """Response schema for initialization status."""
+    needs_initialization: bool
+    message: Optional[str] = None
 
 
 @router.post("/trigger-ingest-and-predict", response_model=TriggerJobResponse)
@@ -355,4 +363,208 @@ def _get_warnings_from_asset_runs(client, graphql_url, limit):
     except Exception as e:
         logger.error(f"Exception in _get_warnings_from_asset_runs: {str(e)}", exc_info=True)
         return WarningsResponse(warnings=[], total_count=0)
+
+
+@router.get("/initialization-status", response_model=InitializationStatusResponse)
+def get_initialization_status():
+    """Check if the system needs initialization (no data in key tables)."""
+    try:
+        with engine.connect() as conn:
+            # Check if key tables have any data
+            # Check simplefin table (source data)
+            try:
+                simplefin_count = conn.execute(text("""
+                    SELECT COUNT(*) FROM public.simplefin
+                """)).scalar()
+            except Exception:
+                # Table doesn't exist or schema doesn't exist
+                logger.info("simplefin table not found")
+                simplefin_count = 0
+            
+            # Check if any dbt models have been run (check for validated transactions)
+            try:
+                validated_count = conn.execute(text("""
+                    SELECT COUNT(*) FROM analytics.fct_validated_trxns
+                """)).scalar()
+            except Exception:
+                # Table doesn't exist or schema doesn't exist
+                logger.info("fct_validated_trxns table not found")
+                validated_count = 0
+            
+            # If no source data and no validated transactions, needs initialization
+            needs_init = (simplefin_count == 0) and (validated_count == 0)
+            
+            if needs_init:
+                return InitializationStatusResponse(
+                    needs_initialization=True,
+                    message="No data found. Please run initialization to set up the pipeline."
+                )
+            else:
+                return InitializationStatusResponse(
+                    needs_initialization=False,
+                    message="System is initialized."
+                )
+                
+    except Exception as e:
+        # If we can't check, assume we need initialization
+        logger.info(f"Error checking initialization status: {str(e)}")
+        return InitializationStatusResponse(
+            needs_initialization=True,
+            message="Unable to check initialization status. Please run initialization."
+        )
+
+
+@router.post("/trigger-initialization", response_model=TriggerJobResponse)
+def trigger_initialization():
+    """Trigger Dagster initialization job (1_dagster_init)."""
+    dagster_url = os.getenv("DAGSTER_URL", "http://dagster:3000")
+    graphql_url = f"{dagster_url}/graphql"
+    
+    logger.info(f"Attempting to trigger 1_dagster_init job at {graphql_url}")
+    
+    # GraphQL mutation to launch the job
+    mutation_launch_run = """
+    mutation LaunchRun(
+      $repositoryLocationName: String!
+      $repositoryName: String!
+      $jobName: String!
+    ) {
+      launchRun(
+        executionParams: {
+          selector: {
+            repositoryLocationName: $repositoryLocationName
+            repositoryName: $repositoryName
+            jobName: $jobName
+          }
+        }
+      ) {
+        __typename
+        ... on LaunchRunSuccess {
+          run {
+            runId
+            status
+          }
+        }
+        ... on PythonError {
+          message
+          stack
+        }
+        ... on PipelineNotFoundError {
+          message
+        }
+        ... on RunConfigValidationInvalid {
+          errors {
+            message
+            reason
+          }
+        }
+      }
+    }
+    """
+    
+    variables = {
+        "jobName": "1_dagster_init",
+        "repositoryLocationName": "repo.py",
+        "repositoryName": "__repository__"
+    }
+    
+    try:
+        with httpx.Client(timeout=300.0) as client:  # Longer timeout for initialization
+            logger.info(f"Launching Dagster initialization job with variables: {variables}")
+            response = client.post(
+                graphql_url,
+                json={"query": mutation_launch_run, "variables": variables},
+                headers={"Content-Type": "application/json"}
+            )
+            
+            logger.info(f"Dagster response status: {response.status_code}")
+            
+            if response.status_code >= 400:
+                result = response.json()
+                logger.error(f"Dagster error response: {result}")
+                if "errors" in result:
+                    error_msg = result["errors"][0].get("message", "Unknown error")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Dagster GraphQL error: {error_msg}"
+                    )
+                response.raise_for_status()
+            
+            result = response.json()
+            logger.info(f"Dagster response: {result}")
+            
+            if "errors" in result:
+                error_details = result["errors"]
+                error_msg = error_details[0].get("message", "Unknown error") if error_details else "Unknown GraphQL error"
+                logger.error(f"GraphQL errors: {error_details}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Dagster GraphQL error: {error_msg}"
+                )
+            
+            launch_result = result.get("data", {}).get("launchRun", {})
+            
+            if launch_result.get("__typename") == "LaunchRunSuccess":
+                run_info = launch_result.get("run", {})
+                run_id = run_info.get("runId") or run_info.get("id")
+                logger.info(f"Successfully launched initialization run: {run_id}")
+                return TriggerJobResponse(
+                    success=True,
+                    message="Initialization job triggered successfully. This may take several minutes.",
+                    run_id=run_id,
+                    status=run_info.get("status")
+                )
+            elif launch_result.get("__typename") == "PythonError":
+                error_msg = launch_result.get("message", "Unknown error")
+                logger.error(f"Python error from Dagster: {error_msg}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Dagster error: {error_msg}"
+                )
+            elif launch_result.get("__typename") == "PipelineNotFoundError":
+                error_msg = launch_result.get("message", "Job not found")
+                logger.error(f"PipelineNotFoundError from Dagster: {error_msg}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Initialization job '1_dagster_init' not found in Dagster. Make sure the job is registered."
+                )
+            elif launch_result.get("__typename") == "RunConfigValidationInvalid":
+                errors = launch_result.get("errors", [])
+                error_msg = errors[0].get("message", "Invalid run config") if errors else "Invalid run config"
+                logger.error(f"Run config validation error: {error_msg}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dagster run config validation failed: {error_msg}"
+                )
+            else:
+                logger.error(f"Unexpected response type: {launch_result.get('__typename')}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Unexpected response from Dagster: {launch_result.get('__typename')}"
+                )
+                
+    except httpx.RequestError as e:
+        logger.error(f"Request error connecting to Dagster: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to connect to Dagster at {graphql_url}: {str(e)}"
+        )
+    except httpx.HTTPStatusError as e:
+        error_text = e.response.text if hasattr(e.response, 'text') else str(e)
+        logger.error(f"HTTP error from Dagster: {e.response.status_code} - {error_text}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Dagster returned HTTP {e.response.status_code}: {error_text}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        error_msg = str(e) if str(e) else f"Exception type: {type(e).__name__}"
+        logger.error(f"Unexpected error: {error_msg}\n{error_trace}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error triggering initialization job: {error_msg}"
+        )
 

@@ -7,6 +7,8 @@ import os
 import glob
 from datetime import datetime
 import logging
+from sqlalchemy import text
+from db.connection import engine
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -97,120 +99,158 @@ def get_metrics_directory() -> str:
 
 @router.get("/metrics/history", response_model=MetricsHistoryResponse)
 def get_metrics_history():
-    """Fetch all model metrics files and return as time series data."""
-    metrics_dir = get_metrics_directory()
-    
-    if not os.path.exists(metrics_dir):
-        logger.warning(f"Metrics directory does not exist: {metrics_dir}")
-        return MetricsHistoryResponse(metrics=[], total_count=0)
-    
-    # Find all metrics JSON files (excluding metrics_latest.json)
-    pattern = os.path.join(metrics_dir, "metrics_*.json")
-    metrics_files = [f for f in glob.glob(pattern) if not f.endswith("metrics_latest.json")]
-    
-    if not metrics_files:
-        logger.info(f"No metrics files found in {metrics_dir}")
-        return MetricsHistoryResponse(metrics=[], total_count=0)
-    
-    metrics_data = []
-    
-    for file_path in metrics_files:
-        try:
-            # Parse timestamp from filename as primary source
-            file_timestamp = parse_timestamp_from_filename(file_path)
-            
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-            
-            # Use training_date from file if available, otherwise use filename timestamp
-            training_date_str = data.get("training_date", "")
-            if not training_date_str and file_timestamp:
-                training_date_str = file_timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Validate required fields
-            if not all(key in data for key in ["accuracy", "macro_f1", "weighted_f1", "n_train_samples", "n_test_samples"]):
-                logger.warning(f"Skipping {file_path}: missing required fields")
-                continue
-            
-            metric_point = MetricDataPoint(
-                training_date=training_date_str,
-                model_version=data.get("model_version", ""),
-                accuracy=float(data["accuracy"]),
-                macro_f1=float(data["macro_f1"]),
-                weighted_f1=float(data["weighted_f1"]),
-                macro_precision=float(data["macro_precision"]) if "macro_precision" in data else None,
-                macro_recall=float(data["macro_recall"]) if "macro_recall" in data else None,
-                weighted_precision=float(data["weighted_precision"]) if "weighted_precision" in data else None,
-                weighted_recall=float(data["weighted_recall"]) if "weighted_recall" in data else None,
-                n_train_samples=int(data["n_train_samples"]),
-                n_test_samples=int(data["n_test_samples"]),
-                n_features=int(data.get("n_features", 0)),
-                n_classes=int(data.get("n_classes", 0))
-            )
-            
-            metrics_data.append(metric_point)
-            
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            logger.warning(f"Error parsing metrics file {file_path}: {e}")
-            continue
-    
-    # Sort by training_date (chronologically)
+    """Fetch all model metrics from model_registry table and return as time series data."""
     try:
-        metrics_data.sort(key=lambda x: datetime.strptime(x.training_date, "%Y-%m-%d %H:%M:%S"))
-    except ValueError as e:
-        logger.warning(f"Error sorting metrics by date: {e}")
-        # If sorting fails, keep original order
-    
-    logger.info(f"Successfully loaded {len(metrics_data)} metrics data points")
-    return MetricsHistoryResponse(metrics=metrics_data, total_count=len(metrics_data))
+        with engine.connect() as conn:
+            # Query all trained models from registry (exclude skipped ones)
+            result = conn.execute(text("""
+                SELECT 
+                    model_version,
+                    training_timestamp,
+                    metrics,
+                    accuracy,
+                    macro_f1,
+                    weighted_f1,
+                    macro_precision,
+                    macro_recall,
+                    weighted_precision,
+                    weighted_recall,
+                    n_train_samples,
+                    n_test_samples,
+                    n_features,
+                    n_classes
+                FROM analytics.model_registry
+                WHERE status = 'trained'
+                ORDER BY training_timestamp DESC
+            """))
+            
+            rows = result.fetchall()
+            
+            if not rows:
+                logger.info("No trained models found in model_registry")
+                return MetricsHistoryResponse(metrics=[], total_count=0)
+            
+            metrics_data = []
+            
+            for row in rows:
+                try:
+                    # Extract metrics from JSONB or use denormalized columns
+                    metrics_json = row.metrics if hasattr(row, 'metrics') else {}
+                    if isinstance(metrics_json, str):
+                        metrics_json = json.loads(metrics_json)
+                    elif not isinstance(metrics_json, dict):
+                        metrics_json = {}
+                    
+                    # Use training_date from metrics JSON or format timestamp
+                    training_date_str = metrics_json.get("training_date", "")
+                    if not training_date_str:
+                        training_date_str = row.training_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Use denormalized columns if available, otherwise fall back to JSON
+                    accuracy = float(row.accuracy) if row.accuracy is not None else float(metrics_json.get("accuracy", 0))
+                    macro_f1 = float(row.macro_f1) if row.macro_f1 is not None else float(metrics_json.get("macro_f1", 0))
+                    weighted_f1 = float(row.weighted_f1) if row.weighted_f1 is not None else float(metrics_json.get("weighted_f1", 0))
+                    
+                    # Validate required fields
+                    if accuracy is None or macro_f1 is None or weighted_f1 is None:
+                        logger.warning(f"Skipping model {row.model_version}: missing required metrics")
+                        continue
+                    
+                    metric_point = MetricDataPoint(
+                        training_date=training_date_str,
+                        model_version=row.model_version,
+                        accuracy=accuracy,
+                        macro_f1=macro_f1,
+                        weighted_f1=weighted_f1,
+                        macro_precision=float(row.macro_precision) if row.macro_precision is not None else metrics_json.get("macro_precision"),
+                        macro_recall=float(row.macro_recall) if row.macro_recall is not None else metrics_json.get("macro_recall"),
+                        weighted_precision=float(row.weighted_precision) if row.weighted_precision is not None else metrics_json.get("weighted_precision"),
+                        weighted_recall=float(row.weighted_recall) if row.weighted_recall is not None else metrics_json.get("weighted_recall"),
+                        n_train_samples=int(row.n_train_samples) if row.n_train_samples is not None else int(metrics_json.get("n_train_samples", 0)),
+                        n_test_samples=int(row.n_test_samples) if row.n_test_samples is not None else int(metrics_json.get("n_test_samples", 0)),
+                        n_features=int(row.n_features) if row.n_features is not None else int(metrics_json.get("n_features", 0)),
+                        n_classes=int(row.n_classes) if row.n_classes is not None else int(metrics_json.get("n_classes", 0))
+                    )
+                    
+                    metrics_data.append(metric_point)
+                    
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.warning(f"Error processing metrics for model {row.model_version}: {e}")
+                    continue
+            
+            # Sort by training_date (chronologically) - already sorted by timestamp DESC, but reverse for chronological
+            metrics_data.reverse()
+            
+            logger.info(f"Successfully loaded {len(metrics_data)} metrics data points from model_registry")
+            return MetricsHistoryResponse(metrics=metrics_data, total_count=len(metrics_data))
+            
+    except Exception as e:
+        logger.error(f"Error querying model_registry: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch metrics history: {str(e)}")
 
 
 @router.get("/training-status", response_model=TrainingStatusResponse)
 def get_training_status():
     """Get the latest training status, including if training was skipped."""
-    metrics_dir = get_metrics_directory()
-    
-    if not os.path.exists(metrics_dir):
-        return TrainingStatusResponse(
-            status='not_found',
-            message='Metrics directory not found'
-        )
-    
-    # Check for latest metrics file
-    latest_metrics_path = os.path.join(metrics_dir, "metrics_latest.json")
-    
-    if not os.path.exists(latest_metrics_path):
-        return TrainingStatusResponse(
-            status='not_found',
-            message='No training has been performed yet'
-        )
-    
     try:
-        with open(latest_metrics_path, 'r') as f:
-            data = json.load(f)
-        
-        # Check if training was skipped
-        if data.get('status') == 'skipped':
+        with engine.connect() as conn:
+            # Get the latest model entry (by timestamp)
+            result = conn.execute(text("""
+                SELECT 
+                    model_version,
+                    training_timestamp,
+                    status,
+                    metrics,
+                    reason,
+                    message,
+                    n_train_samples
+                FROM analytics.model_registry
+                WHERE is_latest = TRUE
+                ORDER BY training_timestamp DESC
+                LIMIT 1
+            """))
+            
+            row = result.fetchone()
+            
+            if row is None:
+                return TrainingStatusResponse(
+                    status='not_found',
+                    message='No training has been performed yet'
+                )
+            
+            # Parse metrics JSON
+            metrics_json = row.metrics if hasattr(row, 'metrics') else {}
+            if isinstance(metrics_json, str):
+                metrics_json = json.loads(metrics_json)
+            elif not isinstance(metrics_json, dict):
+                metrics_json = {}
+            
+            # Check if training was skipped
+            if row.status == 'skipped':
+                return TrainingStatusResponse(
+                    status='skipped',
+                    reason=row.reason or 'unknown',
+                    message=row.message or 'Training was skipped',
+                    training_date=row.training_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    n_available=metrics_json.get('n_available'),
+                    n_required=metrics_json.get('n_required', 50)
+                )
+            
+            # Training was successful
+            training_date_str = metrics_json.get('training_date', '')
+            if not training_date_str:
+                training_date_str = row.training_timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            
             return TrainingStatusResponse(
-                status='skipped',
-                reason=data.get('reason', 'unknown'),
-                message=data.get('message', 'Training was skipped'),
-                training_date=data.get('training_date'),
-                n_available=data.get('n_available'),
-                n_required=data.get('n_required', 50)
+                status='trained',
+                training_date=training_date_str,
+                model_version=row.model_version,
+                n_available=int(row.n_train_samples) if row.n_train_samples is not None else metrics_json.get('n_train_samples'),
+                n_required=50
             )
-        
-        # Training was successful
-        return TrainingStatusResponse(
-            status='trained',
-            training_date=data.get('training_date'),
-            model_version=data.get('model_version'),
-            n_available=data.get('n_train_samples'),
-            n_required=50
-        )
-        
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.warning(f"Error reading latest metrics file: {e}")
+            
+    except Exception as e:
+        logger.error(f"Error querying training status: {e}", exc_info=True)
         return TrainingStatusResponse(
             status='not_found',
             message=f'Error reading training status: {str(e)}'
