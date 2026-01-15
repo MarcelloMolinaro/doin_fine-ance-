@@ -13,12 +13,43 @@ def init_analytics_schema():
 def init_predicted_transactions_table():
     """Create predicted_transactions table if it doesn't exist."""
     with engine.connect() as conn:
-        # Create table with core columns
-        # Note: Additional columns from fct_trxns_uncategorized will be added by pandas when first writing
+        # Create table with all columns from fct_trxns_uncategorized plus prediction columns
         # No primary key since we allow multiple predictions per transaction_id (historical predictions)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS analytics.predicted_transactions (
                 transaction_id TEXT,
+                account_id TEXT,
+                original_account_name TEXT,
+                account_name TEXT,
+                detailed_account_name TEXT,
+                owner_name TEXT,
+                institution_name TEXT,
+                amount NUMERIC,
+                posted_date DATE,
+                transacted_date DATE,
+                description TEXT,
+                pending BOOLEAN,
+                source_category TEXT,
+                master_category TEXT,
+                import_timestamp TEXT,
+                import_date TEXT,
+                source_name TEXT,
+                combined_text TEXT,
+                day_of_week INTEGER,
+                month INTEGER,
+                day_of_month INTEGER,
+                is_negative INTEGER,
+                amount_abs NUMERIC,
+                amount_bucket INTEGER,
+                has_hotel_keyword INTEGER,
+                has_gas_keyword INTEGER,
+                has_grocery_keyword INTEGER,
+                has_restaurant_keyword INTEGER,
+                has_transport_keyword INTEGER,
+                has_shop_keyword INTEGER,
+                has_flight_keyword INTEGER,
+                has_credit_fee_keyword INTEGER,
+                has_interest_keyword INTEGER,
                 predicted_master_category TEXT,
                 prediction_confidence NUMERIC,
                 model_version TEXT,
