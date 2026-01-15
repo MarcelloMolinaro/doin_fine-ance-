@@ -14,27 +14,27 @@ source as ( select * from {{ ref('historic_transactions') }} )
     select
         source.*,
         coalesce(
-            account_mapping.mapped_account_name,
-            source.account_name, -- remove this if you want to force a mapping
+            account_mapping.mapped_account_name::text,
+            source.account_name::text, -- remove this if you want to force a mapping
             'Missing mapping! Add to seed_account_mapping_historic.csv'
         ) as mapped_account_name,
         coalesce(
-            account_mapping.owner_name,
-            source.account_name, -- remove this if you want to force a mapping
+            account_mapping.owner_name::text,
+            source.account_name::text, -- remove this if you want to force a mapping
             'Missing mapping! Add to seed_account_mapping_historic.csv'
         ) as owner_name,
-        coalesce(source.account_name, '') ||
+        coalesce(source.account_name::text, '') ||
             coalesce(source.amount::text, '') ||
             coalesce(source.transaction_date::text, '') ||
-            coalesce(source.description, '')
+            coalesce(source.description::text, '')
         as base_transaction_id
     from source
     left join account_mapping
-        on source.account_name = account_mapping.account_name
+        on source.account_name::text = account_mapping.account_name::text
         and (
             account_mapping.additional_account_info is null
-            or account_mapping.additional_account_info = ''
-            or source.additional_account_detail::text = account_mapping.additional_account_info
+            or account_mapping.additional_account_info::text = ''
+            or source.additional_account_detail::text = account_mapping.additional_account_info::text
         )
 )
 
@@ -69,13 +69,19 @@ source as ( select * from {{ ref('historic_transactions') }} )
         null::timestamp                     as posted,
         null::date                          as posted_date,
         null::timestamp                     as transacted_at,
-        transaction_date::date              as transacted_date,
+        case 
+            when transaction_date is null then null::date
+            else transaction_date::text::date
+        end                                  as transacted_date,
         description::text                   as description,
         null::boolean                       as pending,
         source_category::text               as source_category,
         master_category::text               as master_category,
         null::timestamp                     as import_timestamp,
-        to_date(input_date, 'MM/DD/YYYY')   as import_date
+        case 
+            when input_date is null or input_date::text = '' then null::date
+            else to_date(input_date::text, 'MM/DD/YYYY')
+        end                                  as import_date
     from dupe_row_nums
 
 )
