@@ -89,29 +89,33 @@ def train_transaction_classifier(context: AssetExecutionContext):
     df_train = pd.read_sql(query_categorized, engine)
     df_train = df_train[df_train['amount'].notna()].copy()
     
-    # Filter out transactions before 2022
-    if len(df_train) > 0:
-        df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
-        initial_count = len(df_train)
-        df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
-        filtered_old = initial_count - len(df_train)
+    # ============================================================================
+    # PERSONALIZED TRAINING FILTERS
+    # ============================================================================
+    # This section contains custom filtering logic specific to your data.
+    # Modify these filters for your own use case.
+    
+    # if len(df_train) > 0:
+    #     df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
         
-        if filtered_old > 0:
-            context.log.info(f"Filtered out {filtered_old} transactions before 2022")
+    #     # PERSONALIZED FILTER #1: Filter out transactions before 2022
+    #     df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
         
-        # Filter Lodging: only keep if description contains specific keywords
-        lodging_mask = (
-            df_train['master_category'] == 'Lodging'
-        ) & (
-            ~df_train['description'].fillna('').str.lower().str.contains(
-                'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
-            )
-        )
+    #     # PERSONALIZED FILTER #2: Filter Lodging category - only keep if description contains specific keywords
+    #     lodging_mask = (
+    #         df_train['master_category'] == 'Lodging'
+    #     ) & (
+    #         ~df_train['description'].fillna('').str.lower().str.contains(
+    #             'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
+    #         )
+    #     )
 
-        # Exclude Lodging transactions that don't match keywords
-        df_train = df_train[~lodging_mask].copy()
-
-        context.log.info(f"Filtered out {lodging_mask.sum()} Lodging transactions without keywords")
+    #     df_train = df_train[~lodging_mask].copy()
+    
+    # ============================================================================
+    # END PERSONALIZED TRAINING FILTERS
+    # ============================================================================
+    
     context.log.info(f"Training transactions: {len(df_train)}")
     
     # Check if we have enough training data (need at least 50 samples for meaningful training)
