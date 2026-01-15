@@ -234,9 +234,9 @@ def get_categories(db: Session) -> List[str]:
     # Add common categories if the list is empty (fallback)
     if not categories:
         categories = {
-            "Dining out", "Groceries", "Income", "Bars & Restaurants",
+            "Groceries", "Income", "Bars & Restaurants",
             "Auto & Transport", "Bills & Utilities", "Rent", "Entertainment",
-            "Shopping", "Travel", "Gas & Fuel", "Coffee Shops", "Restaurants"
+            "Shopping", "Travel", "Gas & Fuel", "Coffee Shops"
         }
     
     # Filter out UNCERTAIN - users don't need to assign this category
