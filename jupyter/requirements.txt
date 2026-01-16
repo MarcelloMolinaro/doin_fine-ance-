@@ -1,0 +1,11 @@
+jupyterlab==4.0.9
+pandas==2.1.4
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+matplotlib==3.8.2
+seaborn==0.13.0
+plotly==5.18.0
+ipywidgets==8.1.1
+ipython==8.18.1
+python-dotenv==1.0.0
+

@@ -54,3 +54,7 @@ dbt/seeds/seed_account_mapping_simplefin.csv
 dbt/seeds/seed_account_mapping_historic.csv
 dbt/seeds/seed_transaction_exclusions.csv
 
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+

@@ -25,6 +25,7 @@ make up
 
 - **Web UI**: http://localhost:5173 - Validate and categorize transactions
 - **Dagster UI**: http://localhost:3000 - Orchestrate and monitor data pipelines
+- **Jupyter Lab**: http://localhost:8888 - Create Python visualizations and data analysis notebooks
 - **Postgres**: localhost:5432 (user: `dagster`, password: `dagster`)
 
 ## SimpleFIN Setup
@@ -232,6 +233,45 @@ To add a new feature to the model:
 After making these changes, rebuild the dbt models and retrain the classifier.
 
 **Note**: This process could probably be improved!
+
+## Jupyter Lab for Visualizations
+
+The project includes Jupyter Lab for creating Python visualizations and analyzing your financial data.
+
+### Accessing Jupyter Lab
+
+1. Start the containers: `make up`
+2. Open your browser: http://localhost:8888
+3. Jupyter Lab runs without authentication (no token/password needed in development)
+4. Notebooks are stored in `jupyter/notebooks/` and persist between container restarts
+
+### Getting Started
+
+A sample notebook `00_getting_started.ipynb` is included with:
+- Database connection examples
+- Query examples for your transaction data
+- Visualization examples using matplotlib, seaborn, and plotly
+- Tips for working with the analytics schema
+
+### Database Connection
+
+From within Jupyter notebooks, connect to Postgres using:
+
+```python
+from sqlalchemy import create_engine
+
+connection_string = "postgresql://dagster:dagster@postgres:5432/dagster"
+engine = create_engine(connection_string)
+```
+
+The connection uses the Docker service name `postgres` (not `localhost`) since notebooks run in the same Docker network.
+
+### Key Tables for Analysis
+
+- `analytics.fct_validated_trxns` - Final validated transaction fact table (recommended)
+- `analytics.fct_trxns_categorized` - Categorized transactions
+- `analytics.fct_trxns_uncategorized` - Uncategorized transactions
+- `analytics.fct_trxns_with_predictions` - Transactions with ML predictions
 
 ## Makefile Commands
 

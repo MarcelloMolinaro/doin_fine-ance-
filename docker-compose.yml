@@ -93,6 +93,28 @@ services:
     depends_on:
       - ui-backend
 
+  # =========================
+  # JUPYTER LAB
+  # For creating Python visualizations and data analysis
+  # =========================
+  jupyter:
+    build: ./jupyter
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: dagster
+      POSTGRES_DB: dagster
+    volumes:
+      - ./jupyter/notebooks:/home/jupyter/notebooks
+      - ./dbt:/opt/dbt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 # =========================
 # VOLUMES
 # =========================
