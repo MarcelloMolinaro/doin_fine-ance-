@@ -35,7 +35,7 @@ make psql
 
 ```
 
-**Note**: For dbt + Dagster workflow commands, use `make dbt-compile-restart` (see [DAGSTER_DBT_SETUP.md](DAGSTER_DBT_SETUP.md) for details).
+**Note**: For dbt + Dagster workflow commands, use `make dbt-compile-restart` (see [2_DAGSTER_DBT_SETUP.md](2_DAGSTER_DBT_SETUP.md) for details).
 
 
 ## 3. Testing the simplefin_api.py script

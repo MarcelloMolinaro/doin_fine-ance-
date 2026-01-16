@@ -10,6 +10,7 @@ Local data platform with Dagster, dbt, and Postgres using Docker. Extracts finan
 Before running the pipeline, you'll need to:
 1. Set up SimpleFIN credentials (see [SimpleFIN Setup](#simplefin-setup))
 2. Create account mapping files (*Optional*) (see [Account Mappings](#account-mappings))
+3. Add Historic Data files (*Optional*) (see [Account Mappings](#account-mappings))
 
 ### 2. Initial Setup
 
@@ -114,12 +115,18 @@ extra              |
 1. **You can leave these seed files as they are (i.e. empty)**: 
    - If you want to just useSimpleFIN's account names, no need to touch these. The mappings *can* be especially helpful when combining historic data with SimpleFIN data to consolidate account names.
 
-2. **You Customize the mapping files** with your account information:
+2. **You can customize the mapping files** with your account information:
    - **SimpleFIN mappings** (`seed_account_mapping_simplefin.csv`): Maps SimpleFIN account names (and optional account IDs) to your standardized names
    - **Historic mappings** (`seed_account_mapping_historic.csv`): Maps historic transaction account names (and optional additional fields) to standardized names
    - **Transaction exclusions** (`seed_transaction_exclusions.csv`): Patterns to exclude from processing (e.g., credit card payments). 
       - Add patterns to exclude transactions (e.g., credit card payments, transfers)
       - Uses SQL `ILIKE` pattern matching (supports `%` wildcards)
+
+3. **If you have historic data, add it here!**:
+   - Make sure that the data matches the example file in schema (what's in each column) and data types.
+   - If you don't have all of the columns that the example does, that's ok, leave them blank!
+   - If you need to add a critical column, too bad! You'll need to build that out yourself 🥇
+   - I'd recommend exporting the example file, editing it in a spreadsheet tool and then converting that back into a csv
 
 ## Running the Pipeline
 
@@ -151,7 +158,7 @@ make dbt-compile-restart
 
 Dagster reads `manifest.json` at startup to discover dbt models and their dependencies. Without regenerating it, Dagster won't see your changes.
 
-For more details on the dagster-dbt integration, see [DAGSTER_DBT_SETUP.md](DAGSTER_DBT_SETUP.md).
+For more details on the dagster-dbt integration, see [2_DAGSTER_DBT_SETUP.md](2_DAGSTER_DBT_SETUP.md).
 
 ### Web UI for Transaction Validation
 
@@ -240,5 +247,5 @@ This project includes a `makefile` with convenient shortcuts:
 
 ## Additional Resources
 
-- **[TEST_COMMANDS.md](TEST_COMMANDS.md)**: Useful commands for testing and debugging the pipeline
-- **[DAGSTER_DBT_SETUP.md](DAGSTER_DBT_SETUP.md)**: Advanced dagster-dbt integration details and troubleshooting
+- **[3_TEST_COMMANDS.md](3_TEST_COMMANDS.md)**: Useful commands for testing and debugging the pipeline
+- **[2_DAGSTER_DBT_SETUP.md](2_DAGSTER_DBT_SETUP.md)**: Advanced dagster-dbt integration details and troubleshooting
