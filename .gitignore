@@ -19,6 +19,10 @@ dagster/storage/
 dagster/history/
 dagster/logs/
 dagster/schedules/*.db
+# ML model artifacts
+dagster/models/
+*.pkl
+*.joblib
 
 # dbt build artifacts
 dbt/target/
@@ -50,7 +54,3 @@ dbt/seeds/seed_account_mapping_simplefin.csv
 dbt/seeds/seed_account_mapping_historic.csv
 dbt/seeds/seed_transaction_exclusions.csv
 
-# ML model artifacts
-dagster/models/
-*.pkl
-*.joblib
