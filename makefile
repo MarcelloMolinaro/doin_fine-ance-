@@ -1,23 +1,19 @@
-.PHONY: prod dev down down-dev logs ps \
-	psql dbt-compile-restart
+.PHONY: up down logs ps psql dbt-compile-restart reset-dev-postgres
 
-prod:
-	docker compose --profile prod up -d
+up:
+	docker compose up -d
 
-dev:
-	docker compose --profile dev up -d
-
+# Stop all services
 down:
-	docker compose --profile prod down
+	docker compose down
 
-down-dev:
-	docker compose --profile dev down
-
+# Show running containers
 ps:
-	docker compose --profile prod ps
+	docker compose ps
 
+# Follow logs
 logs:
-	docker compose --profile prod logs -f
+	docker compose logs -f
 
 psql:
 	docker exec -it postgres psql -U dagster -d dagster
@@ -25,3 +21,7 @@ psql:
 dbt-compile-restart:
 	docker exec dagster dbt compile --project-dir /opt/dbt && \
 	docker compose restart dagster
+
+# Danger! This will delete all data in the dev postgres database!
+reset-dev-postgres:
+	docker volume rm dagster_finance_pipeline_postgres_dev
