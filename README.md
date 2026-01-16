@@ -3,26 +3,43 @@
 ## Overview
 Local data platform with Dagster, dbt, and Postgres using Docker. Extracts financial transactions via SimpleFIN, categorizes them with ML, and provides a web UI for validation.
 
-## Running the Stack
+## Quick Start
+
+### 1. Configure Your Environment
+
+Before running the pipeline, you'll need to:
+1. Set up SimpleFIN credentials (see [SimpleFIN Setup](#simplefin-setup))
+2. Create account mapping files (*Optional*) (see [Account Mappings](#account-mappings))
+
+### 2. Initial Setup
 
 ```bash
-docker compose up --build
+# Start all containers
+make up
 ```
 
-- **Dagster UI**: http://localhost:3000
-- **Web UI**: http://localhost:5173
+**Note**: This project includes a `makefile` with convenient shortcuts. See available commands with `make` or check the `makefile` directly.
+
+### 3. Access the UIs
+
+- **Web UI**: http://localhost:5173 - Validate and categorize transactions
+- **Dagster UI**: http://localhost:3000 - Orchestrate and monitor data pipelines
 - **Postgres**: localhost:5432 (user: `dagster`, password: `dagster`)
 
 ## SimpleFIN Setup
 
 The SimpleFIN extractor connects to bank accounts and credit cards via SimpleFIN Bridge.
-- (`dagster/extractors/simplefin_api.py`)
 
-### Quick Setup
+Script here: `dagster/extractors/simplefin_api.py`
+
+### Setup
+
+
+**Note**: SimpleFIN Bridge requires registration and monthly payment of a whopping $1.50, well worth the price of your data! Doesn't feel too steep to me! Don't worry, I don't get a  cut ;) For more details, see: https://www.simplefin.org/protocol.html
 
 1. **Get a SimpleFIN Token**:
    - Visit: https://bridge.simplefin.org/simplefin/create
-   - Follow the prompts to connect your bank account
+   - Follow the prompts to connect your bank account or credit cards
    - Copy the Base64-encoded token
 
 2. **Claim Your Access URL**:
@@ -42,20 +59,15 @@ The SimpleFIN extractor connects to bank accounts and credit cards via SimpleFIN
 
 3. **Configure Environment Variable**:
    
-   **⚠️ Security Warning**: Never commit credentials to git! Use a `.env` file instead.
    
-   Create a `.env` file in the project root (copy from `.env.example`):
-   ```bash
-   SIMPLEFIN_ACCESS_URL=https://your_actual_username:your_actual_password@bridge.simplefin.org/simplefin
-   ```
+   - Add your credentials to the `.env` file
    
-   Replace `your_actual_username` and `your_actual_password` with the credentials from the Access URL.
+   - Replace `your_actual_username` and `your_actual_password` with the credentials from the Access URL.
    
-   Docker Compose automatically loads variables from `.env` when you run `docker-compose up`.
+   - Docker Compose automatically loads variables from `.env`.
 
-The Access URL format is: `https://username:password@bridge.simplefin.org/simplefin`
+   - The Access URL format is: `https://username:password@bridge.simplefin.org/simplefin`
 
-**Note**: SimpleFIN Bridge requires registration and monthly payment of $1.50, well worth the prive of your data! For more details, see: https://www.simplefin.org/protocol.html
 
 ### Institution-Specific Data Availability
 
@@ -63,10 +75,9 @@ Different institutions provide different volumes of historical transaction data:
 
 | Institution | Earliest Date Available |
 |------------|--------------|
-| **Amalgamated Bank** | 60 days |
+| **Various Banks** | 60 days - 145 days|
 | **American Express** | 90 days |
 | **Chase Bank** | 90 days |
-| **Wintrust Community Banks** | <145 days |
 
 The SimpleFIN API enforces a **60-day maximum per request**, so historical data is fetched via pagination.
 
@@ -92,68 +103,65 @@ import_date        | 2025-12-07
 extra              | 
 ```
 
-## Porting Configuration Data
 
-To port your configuration to a new instance, you only need:
-
-1. **`public.user_categories` Postgres table** - Contains all manual transaction categorizations
-2. **`historic_transactions.csv`** - Your historical transaction data
-3. **Account mapping seed files** - `seed_account_mapping_simplefin.csv` and `seed_account_mapping_historic.csv`
-
-The full refresh will grab your historic data and all categorizations will be stored in `public.user_categories`.
 
 ## Account Mappings
 
 **⚠️ Required**: The pipeline requires account mapping seed files to function. These files map raw account names from your financial institutions to standardized account names.
 
-### Setup
+### Setup - `dagster_finance_pipeline/dbt/seeds/`
 
-1. **Copy the example files** from `dbt/seeds/examples/` to create your mapping files:
-   ```bash
-   cp dbt/seeds/examples/seed_account_mapping_simplefin_example.csv dbt/seeds/seed_account_mapping_simplefin.csv
-   cp dbt/seeds/examples/seed_account_mapping_historic_example.csv dbt/seeds/seed_account_mapping_historic.csv
-   cp dbt/seeds/examples/seed_transaction_exclusions_example.csv dbt/seeds/seed_transaction_exclusions.csv
-   ```
+1. **You can leave these seed files as they are (i.e. empty)**: 
+   - If you want to just useSimpleFIN's account names, no need to touch these. The mappings *can* be especially helpful when combining historic data with SimpleFIN data to consolidate account names.
 
-2. **Customize the mapping files** with your account information:
+2. **You Customize the mapping files** with your account information:
    - **SimpleFIN mappings** (`seed_account_mapping_simplefin.csv`): Maps SimpleFIN account names (and optional account IDs) to your standardized names
    - **Historic mappings** (`seed_account_mapping_historic.csv`): Maps historic transaction account names (and optional additional fields) to standardized names
-   - **Transaction exclusions** (`seed_transaction_exclusions.csv`): Patterns to exclude from processing (e.g., credit card payments). Currently managed manually - see TODO.md for future sync script from `config.yaml`
+   - **Transaction exclusions** (`seed_transaction_exclusions.csv`): Patterns to exclude from processing (e.g., credit card payments). 
+      - Add patterns to exclude transactions (e.g., credit card payments, transfers)
+      - Uses SQL `ILIKE` pattern matching (supports `%` wildcards)
 
-3. **Load the seeds** into your database:
-   Either locally or materializing in dagster
-   ```bash
-   dbt seed
-   ```
+## Running the Pipeline
 
-**Note**: The mapping seed files are git-ignored to keep your personal account information private. The example files in `dbt/seeds/examples/` are provided as templates and are disabled from loading into dagster/dbt.
+### 1. Easiest way! The Web UI!!
 
-## Configuration
+http://localhost:5173 - Follow instructions on the Control Center Page. The jobs listed below are triggered by various Web UI buttons.
 
-The pipeline uses a `config.yaml` file to manage transaction exclusion rules.
+### 2. Dagster Jobs
 
-### Initial Setup
+http://localhost:3000 - If you want to see the ins and outs of the the pipeline. The Dagster UI will also help trouble shoot any errors that appear, get to know it if you like! The pipeline also includes several pre-configured jobs:
 
-1. **Copy the example configuration**:
-   ```bash
-   cp config.example.yaml config.yaml
-   ```
+- **`1_dagster_init`**: Complete initialization pipeline - ingests data, runs all dbt models, and refreshes validated transactions with retraining
+- **`2_ingest_and_predict`**: Load SimpleFIN data and run predictions
+- **`3_run_all_dbt_models`**: Run all dbt transformations
+- **`4_refresh_validated_retrain_repredict`**: Incremental refresh of validated transactions, retrain model, and re-run predictions
+- **`z_a_rebuild_historic_data`**: Full rebuild when updating historic seed data
+- **`z_b_full_refresh_validated_trxns`**: Full refresh of validated transactions table (combines historic data with manual categorizations)
 
-2. **Customize `config.yaml`** with your transaction exclusion patterns:
-   - **Transaction Exclusions**: Add patterns to exclude transactions (e.g., credit card payments, transfers)
-     - Uses SQL `ILIKE` pattern matching (supports `%` wildcards)
+   **Recommended workflow**: Use the Dagster UI to materialize assets rather than the terminal. Navigate to Assets and click "Materialize" on the asset you want to run. Dagster automatically handles dependencies.
 
-### Transaction Exclusions
+### Working with dbt Models
 
-Add patterns to exclude non-transactional items like credit card payments:
-```yaml
-transaction_exclusions:
-  description_patterns:
-    - "%Credit Card Payment%"
-    - "%AUTOPAY PAYMENT%"
+**Important**: Whenever you create or edit a dbt model, you must regenerate the manifest:
+
+```bash
+# Regenerate manifest and restart Dagster
+make dbt-compile-restart
 ```
 
-**Note**: `config.yaml` is git-ignored to keep your personal configuration private.
+Dagster reads `manifest.json` at startup to discover dbt models and their dependencies. Without regenerating it, Dagster won't see your changes.
+
+For more details on the dagster-dbt integration, see [DAGSTER_DBT_SETUP.md](DAGSTER_DBT_SETUP.md).
+
+### Web UI for Transaction Validation
+
+The Web UI (http://localhost:5173) provides an interface to:
+- View uncategorized transactions
+- Validate ML predictions
+- Manually categorize transactions
+- Review transaction history
+
+All manual categorizations are stored in `public.user_categories` and feed back into the ML training process.
 
 ## ML Transaction Classifier
 
@@ -215,3 +223,22 @@ To add a new feature to the model:
    ```
 
 After making these changes, rebuild the dbt models and retrain the classifier.
+
+**Note**: This process could probably be improved!
+
+## Makefile Commands
+
+This project includes a `makefile` with convenient shortcuts:
+
+- `make up` - Start all containers
+- `make down` - Stop all containers
+- `make ps` - Show running containers
+- `make logs` - Follow container logs
+- `make psql` - Open Postgres shell
+- `make dbt-compile-restart` - Compile dbt manifest and restart Dagster
+- `make reset-dev-postgres` - ⚠️ Reset dev Postgres database (deletes all data!)
+
+## Additional Resources
+
+- **[TEST_COMMANDS.md](TEST_COMMANDS.md)**: Useful commands for testing and debugging the pipeline
+- **[DAGSTER_DBT_SETUP.md](DAGSTER_DBT_SETUP.md)**: Advanced dagster-dbt integration details and troubleshooting

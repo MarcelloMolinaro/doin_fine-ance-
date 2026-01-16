@@ -1,46 +1,35 @@
 # Dagster-dbt Integration Setup
 
-## Quick Start Commands
-
-```bash
-# 1. Rebuild just the container for dagster (dagster = ptional)
-docker compose build dagster
-
-# 2. Start everything
-docker compose up -d
-
-# 3. Generate the dbt manifest (required for dagster-dbt to work)
-docker exec dagster dbt compile --project-dir /opt/dbt
-
-# 4. Restart Dagster to load the manifest
-docker compose restart dagster
-```
+> **Note**: For initial setup instructions, see the [README.md](README.md). This document focuses on advanced usage and troubleshooting.
 
 ## How It Works
 
 The integration automatically:
 - Loads all dbt models as Dagster assets
 - Requires `manifest.json` to be generated first (via `dbt compile`)
-- Uses `dbt build` to run models and tests
-- repo.py file contains dagster jobs and dbt configurations
-- If you make any changes to dbt models, you must recompile and restart
+- Uses `dbt build` by default (runs models and tests)
+- `repo.py` file contains dagster jobs and dbt configurations
+
+**Key Point**: If you make any changes to dbt models, you must recompile and restart:
 ```bash
-# recompile and restarts Dagster
-docker exec dagster dbt compile --project-dir /opt/dbt && docker compose restart dagster
+# Recompile and restart Dagster
+make dbt-compile-restart
 ```
 
 ## Verification
 
+After setup, verify the integration:
 1. Open http://localhost:3000
 2. You should see all your dbt models as individual assets
 3. Each model shows dependencies based on dbt's lineage
 4. You can materialize individual models or entire DAGs
 
-## Usage
+## Usage Tips
 
 - **Materialize individual models**: Click on any dbt model asset in the UI
 - **Materialize with dependencies**: Dagster automatically handles upstream dependencies
 - **Mix with Python assets**: dbt models work seamlessly with your existing Python assets
+- **View lineage**: The asset graph shows how dbt models connect to Python assets
 
 ## Running Full-Refresh on Incremental Models
 
@@ -72,11 +61,8 @@ This pipeline has one incremental model: `fct_validated_trxns`. To run it with `
 **Whenever you create a new dbt model or edit an existing one**, you need to regenerate the manifest so Dagster knows about the changes:
 
 ```bash
-# 1. Regenerate the manifest (this updates manifest.json with your new/changed models)
-docker exec dagster dbt compile --project-dir /opt/dbt
-
-# 2. Restart Dagster to pick up the new manifest
-docker compose restart dagster
+# Regenerate the manifest and restart Dagster
+make dbt-compile-restart
 ```
 
 **Why?** Dagster reads `manifest.json` at startup to discover which dbt models exist and understand their dependencies. Without regenerating it, Dagster won't see your new models or updated dependencies.
@@ -85,12 +71,30 @@ docker compose restart dagster
 
 | Action | What to do |
 |--------|------------|
-| **Create new dbt model** | `dbt compile` → restart Dagster |
-| **Edit existing model** (change SQL, columns, refs) | `dbt compile` → restart Dagster |
-| **Add/remove dependencies** (change `ref()` or `source()`) | `dbt compile` → restart Dagster |
+| **Create new dbt model** | `make dbt-compile-restart` |
+| **Edit existing model** (change SQL, columns, refs) | `make dbt-compile-restart` |
+| **Add/remove dependencies** (change `ref()` or `source()`) | `make dbt-compile-restart` |
 | **Only change model config** (not structure) | Usually no restart needed, but safe to do it anyway |
 
-## Notes
+## Troubleshooting
+
+### Dagster doesn't show my new dbt model
+- Ensure you've run `dbt compile` to regenerate `manifest.json`
+- Restart Dagster after compiling
+- Check that the model is in the correct directory (`dbt/models/`)
+
+### dbt models fail to materialize
+- Check container logs: `make logs` (or `docker compose logs -f`)
+- Check dbt logs: `docker exec dagster dbt run --project-dir /opt/dbt`
+- Verify Postgres connection: `docker exec dagster dbt debug --project-dir /opt/dbt`
+
+### Manifest not found errors
+- The manifest is generated in `dbt/target/manifest.json` (gitignored)
+- If missing, run `dbt compile` from within the dagster container
+- Ensure the `dbt/target/` directory is writable
+
+## Technical Notes
 
 - The manifest is in `dbt/target/manifest.json` (gitignored)
 - The integration uses `dbt build` by default (runs models and tests)
+- All dbt models are loaded as a single `dbt_models` asset in Dagster

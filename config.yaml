@@ -1,0 +1,9 @@
+# Configuration file for Dagster Finance Pipeline
+
+# Transaction Classifier Model Configuration
+model:
+  # Confidence threshold for predictions (0.0 to 1.0)
+  # Predictions below this threshold will be marked as 'UNCERTAIN'
+  # Lower values = more predictions but potentially lower precision
+  # Higher values = fewer predictions but higher precision
+  confidence_threshold: 0.35
