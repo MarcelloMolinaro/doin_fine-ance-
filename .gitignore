@@ -58,3 +58,5 @@ dbt/seeds/seed_transaction_exclusions.csv
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
 
+# node package-lock.json
+ui/frontend/package-lock.json
