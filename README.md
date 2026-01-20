@@ -19,6 +19,13 @@ Before running the pipeline, you'll need to:
 make up
 ```
 
+```bash
+# Generate the manifest and restart Dagster
+make dbt-compile-restart
+```
+
+Then access the Web UI (see below) and start the initial data loading.
+
 **Note**: This project includes a `makefile` with convenient shortcuts. See available commands with `make` or check the `makefile` directly.
 
 ### 3. Access the UIs
