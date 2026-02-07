@@ -168,8 +168,26 @@ The Web UI (http://localhost:5173) provides an interface to:
 - Validate ML predictions
 - Manually categorize transactions
 - Review transaction history
+- Backup database (manual download or scheduled automatic backups)
 
 All manual categorizations are stored in `public.user_categories` and feed back into the ML training process.
+
+### Database Backup
+
+The Backup tab in the Web UI lets you:
+
+1. **Manual Download** – Create a backup and download it through your browser. Uses `pg_dump` custom format (compressed).
+2. **Save to Server** – Create a backup and save it to `./backups` on the host. Useful for one-off snapshots.
+3. **Automatic Schedule** – Enable scheduled backups (e.g. daily at 2 AM). Backups are saved to `./backups`. Configure retention to automatically delete older backups (1–90 days).
+4. **Backup List** – View backups stored on the server with size and creation date.
+
+Backups use `pg_dump -Fc` (custom format). To restore:
+
+```bash
+pg_restore -h localhost -U dagster -d dagster -c ./backups/dagster_backup_YYYYMMDD_HHMMSS.dump
+```
+
+The `./backups` directory is mounted from the host, so backups persist across container restarts.
 
 ## ML Transaction Classifier
 

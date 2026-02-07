@@ -58,3 +58,8 @@ dbt/seeds/seed_transaction_exclusions.csv
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
 
+# Database backups (saved to local server storage)
+# Keep backups/ directory via .gitkeep; ignore backup files
+backups/*.dump
+backups/schedule.json
+

@@ -65,9 +65,11 @@ services:
       POSTGRES_PASSWORD: dagster
       POSTGRES_DB: dagster
       POSTGRES_SCHEMA: analytics
+      BACKUP_DIR: /app/backups
     volumes:
       - ./ui/backend:/app
       - ./dagster/models:/opt/dagster/models:ro
+      - ./backups:/app/backups
     depends_on:
       postgres:
         condition: service_healthy
