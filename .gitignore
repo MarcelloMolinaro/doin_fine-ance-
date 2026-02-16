@@ -44,6 +44,7 @@ dbt/.user.yml
 .env
 .env.local
 docker-compose.override.yml
+package-lock.json
 
 # Configuration files
 # config.yaml
