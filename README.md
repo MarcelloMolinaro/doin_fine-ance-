@@ -81,7 +81,7 @@ Different institutions provide different volumes of historical transaction data:
 | **American Express** | 90 days |
 | **Chase Bank** | 90 days |
 
-The SimpleFIN API enforces a **60-day maximum per request**, so historical data is fetched via pagination.
+The SimpleFIN API recommends a **45-day maximum per request**, so historical data is fetched via pagination.
 
 ### Example SimpleFIN Transaction Data
 

@@ -85,15 +85,15 @@ def simplefin_financial_data(context):
     
     try:
         # Get account and transaction data from SimpleFIN
-        # SimpleFIN API has a 60-day limit per request, so we need to paginate
+        # SimpleFIN API recommends 45-day max per request (was 60; may be capped in future)
         # TODO: Add configurable date range (start-date, end-date query parameters)
         # TODO: Add support for pending transactions (pending=1)
         # TODO: Add support for balances-only mode (balances-only=1)
         end_date = datetime.now()
         start_date = end_date - timedelta(days=200)  # Last 200 days, no accounts support more
         
-        # SimpleFIN API limit: 60 days per request
-        MAX_DAYS_PER_REQUEST = 60
+        # SimpleFIN API recommended limit: 45 days per request
+        MAX_DAYS_PER_REQUEST = 45
         accounts_url = f"{base_url}/accounts"
         
         # Calculate number of requests needed
@@ -106,13 +106,13 @@ def simplefin_financial_data(context):
         successful_institutions = set()
         failed_institutions = set()
         
-        # Make requests in 60-day chunks
+        # Make requests in 45-day chunks
         current_start = start_date
         request_num = 0
         
         while current_start < end_date:
             request_num += 1
-            # Calculate end date for this chunk (either 60 days later, or end_date if smaller)
+            # Calculate end date for this chunk (either 45 days later, or end_date if smaller)
             current_end = min(current_start + timedelta(days=MAX_DAYS_PER_REQUEST), end_date)
             
             context.log.info(f"Request {request_num}/{num_requests}: Fetching data from {current_start.date()} to {current_end.date()}")
