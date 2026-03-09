@@ -163,6 +163,82 @@ class RunBackupResponse(BaseModel):
     message: str
 
 
+class RestoreRequest(BaseModel):
+    """Request schema for restore from backup."""
+    filename: str
+    confirm: Optional[str] = None
+
+
+class RestoreResponse(BaseModel):
+    """Response schema for restore."""
+    success: bool
+    message: str
+
+
+def _run_pg_restore(input_path: Path) -> None:
+    """Run pg_restore. Uses -c --if-exists to drop objects before recreating."""
+    env = os.environ.copy()
+    env["PGPASSWORD"] = POSTGRES_PASSWORD
+    cmd = [
+        "pg_restore",
+        "-h", POSTGRES_HOST,
+        "-p", str(POSTGRES_PORT),
+        "-U", POSTGRES_USER,
+        "-d", POSTGRES_DB,
+        "-c",  # Clean (drop) database objects before recreating
+        "--if-exists",
+        str(input_path),
+    ]
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            # pg_restore can return non-zero for warnings; check stderr
+            raise RuntimeError(result.stderr.strip() or "pg_restore failed")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Restore timed out after 5 minutes")
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="pg_restore not found. Ensure postgresql-client is installed.",
+        )
+
+
+@router.post("/restore", response_model=RestoreResponse)
+def restore_from_backup(req: RestoreRequest):
+    """
+    Restore database from a backup file stored on the server.
+    Requires confirm='RESTORE' to prevent accidental overwrites.
+    """
+    if req.confirm != "RESTORE":
+        raise HTTPException(
+            status_code=400,
+            detail="Restore requires confirm='RESTORE' in the request body.",
+        )
+    filename = req.filename.strip()
+    if not filename.endswith(".dump"):
+        raise HTTPException(status_code=400, detail="Only .dump files can be restored.")
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+
+    backup_dir = _ensure_backup_dir()
+    restore_path = (backup_dir / filename).resolve()
+    if not restore_path.is_relative_to(backup_dir.resolve()) or not restore_path.exists():
+        raise HTTPException(status_code=404, detail=f"Backup not found: {filename}")
+
+    try:
+        _run_pg_restore(restore_path)
+        logger.info(f"Restore completed: {filename}")
+        return RestoreResponse(
+            success=True,
+            message=f"Database restored from {filename}",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Restore failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/download")
 def download_backup():
     """

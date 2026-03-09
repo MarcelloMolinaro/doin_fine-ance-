@@ -180,8 +180,9 @@ The Backup tab in the Web UI lets you:
 2. **Save to Server** – Create a backup and save it to `./backups` on the host. Useful for one-off snapshots.
 3. **Automatic Schedule** – Enable scheduled backups (e.g. daily at 2 AM). Backups are saved to `./backups`. Configure retention to automatically delete older backups (1–90 days).
 4. **Backup List** – View backups stored on the server with size and creation date.
+5. **Restore** – Restore the database from a server-stored backup. Select a backup, type RESTORE to confirm, then click Restore. Overwrites the current database.
 
-Backups use `pg_dump -Fc` (custom format). To restore:
+Backups use `pg_dump -Fc` (custom format). For command-line restore:
 
 ```bash
 pg_restore -h localhost -U dagster -d dagster -c ./backups/dagster_backup_YYYYMMDD_HHMMSS.dump

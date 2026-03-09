@@ -2741,6 +2741,9 @@ function App() {
     const [backupError, setBackupError] = useState(null)
     const [backupSuccess, setBackupSuccess] = useState(null)
     const [cronInput, setCronInput] = useState('0 2 * * *')
+    const [restoring, setRestoring] = useState(false)
+    const [restoreConfirm, setRestoreConfirm] = useState('')
+    const [restoreTarget, setRestoreTarget] = useState('')
 
     const fetchSchedule = async () => {
       try {
@@ -2809,6 +2812,26 @@ function App() {
         setBackupError(err.response?.data?.detail || err.message || 'Backup failed')
       } finally {
         setRunningBackup(false)
+      }
+    }
+
+    const handleRestore = async () => {
+      if (!restoreTarget || restoreConfirm !== 'RESTORE') return
+      try {
+        setRestoring(true)
+        setBackupError(null)
+        setBackupSuccess(null)
+        await axios.post(`${API_BASE_URL}/api/backup/restore`, {
+          filename: restoreTarget,
+          confirm: 'RESTORE'
+        })
+        setBackupSuccess('Database restored successfully.')
+        setRestoreConfirm('')
+        setRestoreTarget('')
+      } catch (err) {
+        setBackupError(err.response?.data?.detail || err.message || 'Restore failed')
+      } finally {
+        setRestoring(false)
       }
     }
 
@@ -2968,6 +2991,7 @@ function App() {
                     <th style={{ textAlign: 'left', padding: '10px 12px' }}>Filename</th>
                     <th style={{ textAlign: 'right', padding: '10px 12px' }}>Size</th>
                     <th style={{ textAlign: 'left', padding: '10px 12px' }}>Created</th>
+                    <th style={{ textAlign: 'right', padding: '10px 12px', width: '100px' }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2976,12 +3000,59 @@ function App() {
                       <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: '0.9rem' }}>{b.filename}</td>
                       <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatSize(b.size_bytes)}</td>
                       <td style={{ padding: '10px 12px' }}>{formatDate(b.created)}</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                        <button
+                          className="btn"
+                          onClick={() => setRestoreTarget(restoreTarget === b.filename ? '' : b.filename)}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '0.85rem',
+                            backgroundColor: restoreTarget === b.filename ? '#0d6efd' : undefined,
+                            color: restoreTarget === b.filename ? '#fff' : undefined
+                          }}
+                        >
+                          {restoreTarget === b.filename ? 'Selected' : 'Restore'}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
           </div>
+
+          {/* Restore from Backup */}
+          {backups.length > 0 && (
+            <div style={{ padding: '24px', border: '1px solid #dee2e6', borderRadius: '8px', backgroundColor: '#fff', borderColor: '#dc3545' }}>
+              <h2 style={{ marginTop: 0, marginBottom: '12px', fontSize: '1.25rem', color: '#dc3545' }}>Restore from Backup</h2>
+              <p style={{ color: '#6c757d', marginBottom: '16px', fontSize: '0.95rem' }}>
+                Restore overwrites the current database. Select a backup above, type RESTORE to confirm, then click Restore.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '400px' }}>
+                {restoreTarget && (
+                  <p style={{ margin: 0, fontWeight: 500 }}>Selected: <code style={{ fontSize: '0.9rem' }}>{restoreTarget}</code></p>
+                )}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: 500 }}>Type RESTORE to confirm</label>
+                  <input
+                    type="text"
+                    value={restoreConfirm}
+                    onChange={(e) => setRestoreConfirm(e.target.value)}
+                    placeholder="RESTORE"
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #ced4da', borderRadius: '4px', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleRestore}
+                  disabled={restoring || restoreConfirm !== 'RESTORE' || !restoreTarget}
+                  style={{ backgroundColor: restoreConfirm === 'RESTORE' ? '#dc3545' : undefined, maxWidth: '200px' }}
+                >
+                  {restoring ? 'Restoring...' : 'Restore Database'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
