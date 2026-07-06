@@ -2,8 +2,7 @@
 
 # Transaction Classifier Model Configuration
 model:
-  # Confidence threshold for predictions (0.0 to 1.0)
-  # Predictions below this threshold will be marked as 'UNCERTAIN'
-  # Lower values = more predictions but potentially lower precision
-  # Higher values = fewer predictions but higher precision
-  confidence_threshold: 0.35
+  # Minimum confidence to show a predicted category (below = UNCERTAIN)
+  confidence_threshold: 0.10
+  # Predictions between confidence_threshold and this value show a "Low confidence" tag in the UI
+  low_confidence_threshold: 0.35

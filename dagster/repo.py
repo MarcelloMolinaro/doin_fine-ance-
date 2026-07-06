@@ -162,6 +162,21 @@ full_refresh_validated_trxns_job = define_asset_job(
     ),
 )
 
+full_refresh_validated_retrain_repredict_job = define_asset_job(
+    name="5_full_refresh_validated_retrain_repredict",
+    selection=AssetSelection.keys("fct_validated_trxns").downstream(),
+    description="Full refresh fct_validated_trxns (picks up category edits), then retrain and re-predict",
+    config=RunConfig(
+        ops={
+            "dbt_models": {
+                "config": {
+                    "full_refresh": True
+                }
+            }
+        }
+    ),
+)
+
 # -------------------------
 # Definitions
 # -------------------------
@@ -184,5 +199,6 @@ definitions = Definitions(
         refresh_validated_trxns_job,
         rebuild_historic_data_job,
         full_refresh_validated_trxns_job,
+        full_refresh_validated_retrain_repredict_job,
     ],
 )

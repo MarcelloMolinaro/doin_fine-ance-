@@ -4,6 +4,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import './index.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const PREDICTION_CONFIDENCE_THRESHOLD = 0.10
+const LOW_CONFIDENCE_THRESHOLD = 0.35
 
 function App() {
   const [transactions, setTransactions] = useState([])
@@ -28,6 +30,8 @@ function App() {
   // Persist TransactionsPage filter per viewMode across component recreations
   const transactionsPageFilterRef = useRef({})
   const [refreshingValidated, setRefreshingValidated] = useState(false)
+  const [excludeLowConfidence, setExcludeLowConfidence] = useState(false)
+  const [confidenceSort, setConfidenceSort] = useState('default') // 'default' | 'asc' | 'desc'
   const [triggeringIngest, setTriggeringIngest] = useState(false)
   const [warnings, setWarnings] = useState([])
   const [loadingWarnings, setLoadingWarnings] = useState(true)
@@ -40,6 +44,10 @@ function App() {
 
   useEffect(() => {
     setCurrentPage(1) // Reset to first page when view mode changes
+    if (viewMode !== 'unvalidated_predicted') {
+      setExcludeLowConfidence(false)
+      setConfidenceSort('default')
+    }
     // Note: descriptionFilter is now managed by TransactionsPage component
   }, [viewMode])
 
@@ -49,7 +57,7 @@ function App() {
     if (viewMode === 'unvalidated_predicted') {
       fetchTrainingStatus()
     }
-  }, [viewMode, currentPage, descriptionFilter])
+  }, [viewMode, currentPage, descriptionFilter, excludeLowConfidence, confidenceSort])
   
   const fetchTrainingStatus = async () => {
     try {
@@ -135,6 +143,15 @@ function App() {
       }
       if (descriptionFilter.trim()) {
         params.description_search = descriptionFilter.trim()
+      }
+      if (viewMode === 'unvalidated_predicted') {
+        if (excludeLowConfidence) {
+          params.exclude_low_confidence = true
+        }
+        if (confidenceSort !== 'default') {
+          params.sort_by = 'prediction_confidence'
+          params.sort_order = confidenceSort
+        }
       }
       const response = await axios.get(`${API_BASE_URL}/api/transactions`, { params })
       const fetchedTransactions = response.data.transactions || response.data
@@ -799,10 +816,26 @@ function App() {
     return null
   }
 
+  const isLowConfidencePrediction = (transaction) => {
+    if (!transaction.prediction_confidence || transaction.predicted_master_category === 'UNCERTAIN') {
+      return false
+    }
+    const confidence = parseFloat(transaction.prediction_confidence)
+    return confidence >= PREDICTION_CONFIDENCE_THRESHOLD && confidence < LOW_CONFIDENCE_THRESHOLD
+  }
+
+  const getLowConfidenceTag = (transaction) => {
+    if (viewMode !== 'unvalidated_predicted' || !isLowConfidencePrediction(transaction)) {
+      return null
+    }
+    return <span className="confidence-tag-low" title="Model confidence is below 35%">Low</span>
+  }
+
   const getConfidenceDisplay = (transaction) => {
     if (transaction.prediction_confidence && transaction.predicted_master_category && transaction.predicted_master_category !== 'UNCERTAIN') {
       const confidence = (parseFloat(transaction.prediction_confidence) * 100).toFixed(0)
-      return <span style={{ color: '#495057', fontSize: '0.875rem' }}>{confidence}%</span>
+      const color = isLowConfidencePrediction(transaction) ? '#856404' : '#495057'
+      return <span style={{ color, fontSize: '0.875rem' }}>{confidence}%</span>
     }
     return <span style={{ color: '#6c757d', fontStyle: 'italic' }}>-</span>
   }
@@ -1674,6 +1707,11 @@ function App() {
     const [validatedTransactions, setValidatedTransactions] = useState([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
+    const [success, setSuccess] = useState(null)
+    const [editorMode, setEditorMode] = useState(false)
+    const [editorCategories, setEditorCategories] = useState([])
+    const [pendingCategoryEdits, setPendingCategoryEdits] = useState({})
+    const [savingEditorChanges, setSavingEditorChanges] = useState(false)
     const [sortBy, setSortBy] = useState('transacted_date')
     const [sortOrder, setSortOrder] = useState('desc')
     const [categoryFilter, setCategoryFilter] = useState('')
@@ -1725,6 +1763,12 @@ function App() {
       fetchCategories()
     }, [sortBy, sortOrder, categoryFilter, accountFilter, descriptionFilter, currentPage])
 
+    useEffect(() => {
+      if (editorMode) {
+        fetchEditorCategories()
+      }
+    }, [editorMode])
+
     const fetchValidatedTransactions = async () => {
       try {
         setLoading(true)
@@ -1767,6 +1811,113 @@ function App() {
       } catch (err) {
         console.error('Failed to load categories:', err)
       }
+    }
+
+    const fetchEditorCategories = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/validated-transactions/categories/all`)
+        setEditorCategories(response.data || [])
+      } catch (err) {
+        console.error('Failed to load editor categories:', err)
+        setEditorCategories(availableCategories)
+      }
+    }
+
+    const handleEnterEditorMode = () => {
+      const confirmed = window.confirm(
+        'Enter Editor Mode?\n\n' +
+        'You can search and change categories for validated transactions. ' +
+        'Changes are staged until you click Save. Saving runs a full refresh of training data plus retrain (~45s after save).\n\n' +
+        'Only category fields are editable. Continue?'
+      )
+      if (confirmed) {
+        setEditorMode(true)
+        setPendingCategoryEdits({})
+        setSuccess(null)
+        setError(null)
+      }
+    }
+
+    const pendingEditCount = Object.keys(pendingCategoryEdits).length
+
+    const handleCancelEditorMode = () => {
+      if (pendingEditCount > 0) {
+        const confirmed = window.confirm(
+          `Discard ${pendingEditCount} unsaved category change${pendingEditCount !== 1 ? 's' : ''}?`
+        )
+        if (!confirmed) return
+      }
+      setEditorMode(false)
+      setPendingCategoryEdits({})
+    }
+
+    const handleCategoryChange = (transactionId, newCategory, savedCategory) => {
+      if (!newCategory) return
+
+      if (newCategory === savedCategory) {
+        setPendingCategoryEdits(prev => {
+          const next = { ...prev }
+          delete next[transactionId]
+          return next
+        })
+        return
+      }
+
+      setPendingCategoryEdits(prev => ({
+        ...prev,
+        [transactionId]: {
+          original: savedCategory,
+          new: newCategory,
+        },
+      }))
+    }
+
+    const handleSaveEditorChanges = async () => {
+      if (pendingEditCount === 0) {
+        setEditorMode(false)
+        return
+      }
+
+      const confirmed = window.confirm(
+        `Save ${pendingEditCount} category change${pendingEditCount !== 1 ? 's' : ''}?\n\n` +
+        'This updates the database and schedules a full refresh + retrain (~45s after save).'
+      )
+      if (!confirmed) return
+
+      try {
+        setSavingEditorChanges(true)
+        setError(null)
+
+        const edits = Object.entries(pendingCategoryEdits)
+        let savedCount = 0
+
+        for (const [transactionId, edit] of edits) {
+          await axios.put(
+            `${API_BASE_URL}/api/validated-transactions/${transactionId}/category`,
+            { master_category: edit.new }
+          )
+          savedCount++
+        }
+
+        setPendingCategoryEdits({})
+        setEditorMode(false)
+        setSuccess(
+          `Saved ${savedCount} category change${savedCount !== 1 ? 's' : ''}. ` +
+          'Full refresh + retrain scheduled (~45s).'
+        )
+        await fetchValidatedTransactions()
+      } catch (err) {
+        setError(`Failed to save changes: ${err.response?.data?.detail || err.message}`)
+      } finally {
+        setSavingEditorChanges(false)
+      }
+    }
+
+    const getEditorCategoryValue = (transaction) => {
+      if (pendingCategoryEdits[transaction.transaction_id]) {
+        return pendingCategoryEdits[transaction.transaction_id].new
+      }
+      return transaction.master_category || ''
     }
 
     const handleSort = (column) => {
@@ -1826,13 +1977,84 @@ function App() {
 
     return (
       <div className="placeholder-page">
-        <div className="header">
-          <h1>All Data</h1>
-          <p>View and explore validated transaction data.</p>
+        <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1>All Data</h1>
+            <p>View and explore validated transaction data{editorMode ? ' (Editor Mode)' : ''}.</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {editorMode ? (
+              <>
+                <button
+                  className="btn btn-save"
+                  onClick={handleSaveEditorChanges}
+                  disabled={savingEditorChanges}
+                >
+                  {savingEditorChanges
+                    ? 'Saving...'
+                    : pendingEditCount > 0
+                      ? `Save Changes (${pendingEditCount})`
+                      : 'Save & Exit'}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleCancelEditorMode}
+                  disabled={savingEditorChanges}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-primary" onClick={handleEnterEditorMode}>
+                Enter Editor Mode
+              </button>
+            )}
+          </div>
         </div>
+
+        {editorMode && (
+          <div className="editor-toolbar-sticky">
+            <div className="editor-toolbar-content">
+              <span>
+                <strong>Editor Mode</strong> — {pendingEditCount} unsaved change{pendingEditCount !== 1 ? 's' : ''}
+              </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  className="btn btn-save"
+                  onClick={handleSaveEditorChanges}
+                  disabled={savingEditorChanges}
+                >
+                  {savingEditorChanges
+                    ? 'Saving...'
+                    : pendingEditCount > 0
+                      ? `Save Changes (${pendingEditCount})`
+                      : 'Save & Exit'}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleCancelEditorMode}
+                  disabled={savingEditorChanges}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editorMode && (
+          <div className="editor-mode-banner">
+            <strong>Editor Mode</strong> — Search below, then change categories from the dropdown.
+            Changes are staged until you click Save.
+          </div>
+        )}
 
         {error && (
           <div className="error">{error}</div>
+        )}
+
+        {success && (
+          <div className="success">{success}</div>
         )}
 
         {showNotes && (
@@ -1972,19 +2194,47 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {validatedTransactions.map((transaction) => (
-                  <tr key={transaction.transaction_id}>
+                {validatedTransactions.map((transaction) => {
+                  const hasPendingEdit = Boolean(pendingCategoryEdits[transaction.transaction_id])
+                  return (
+                  <tr
+                    key={transaction.transaction_id}
+                    style={hasPendingEdit ? { backgroundColor: '#fff8e1' } : undefined}
+                  >
                     <td>{formatDate(transaction.transacted_date)}</td>
                     <td>{transaction.description || '-'}</td>
                     <td>{transaction.account_name || '-'}</td>
                     <td>{formatAmount(transaction.amount)}</td>
                     <td>
-                      {transaction.master_category ? (
+                      {editorMode ? (
+                        <select
+                          className="category-select"
+                          value={getEditorCategoryValue(transaction)}
+                          onChange={(e) => {
+                            handleCategoryChange(
+                              transaction.transaction_id,
+                              e.target.value,
+                              transaction.master_category
+                            )
+                          }}
+                          disabled={savingEditorChanges}
+                          style={{
+                            width: '100%',
+                            minWidth: '180px',
+                            border: hasPendingEdit ? '2px solid #ffc107' : undefined,
+                          }}
+                        >
+                          <option value="">Select category...</option>
+                          {(editorCategories.length > 0 ? editorCategories : availableCategories).map((cat) => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+                      ) : transaction.master_category ? (
                         <span 
                           className="category-badge category-confident"
                           style={{
                             backgroundColor: getCategoryColor(transaction.master_category),
-                            color: '#2c3e50', // Dark text on pastel background
+                            color: '#2c3e50',
                             padding: '4px 8px',
                             borderRadius: '4px',
                             fontSize: '0.875rem',
@@ -1998,7 +2248,7 @@ function App() {
                         <span style={{ color: '#6c757d' }}>-</span>
                       )}
                     </td>
-                    {showNotes && (
+                    {showNotes && !editorMode && (
                       <td>
                         <input
                           key={`notes-${transaction.transaction_id}`}
@@ -2018,9 +2268,9 @@ function App() {
                         />
                       </td>
                     )}
-                    {!showNotes && <td></td>}
+                    {!showNotes && !editorMode && <td></td>}
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           )}
@@ -2289,6 +2539,50 @@ function App() {
                 </span>
               </div>
             )}
+            {viewMode === 'unvalidated_predicted' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => {
+                    setExcludeLowConfidence(prev => !prev)
+                    setCurrentPage(1)
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    border: excludeLowConfidence ? '1px solid #28a745' : '1px solid #ced4da',
+                    borderRadius: '4px',
+                    background: excludeLowConfidence ? '#d4edda' : 'white',
+                    color: excludeLowConfidence ? '#155724' : '#495057',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: excludeLowConfidence ? '600' : '400',
+                  }}
+                >
+                  {excludeLowConfidence ? '✓ Hiding low confidence' : 'Hide low confidence'}
+                </button>
+                <button
+                  onClick={() => {
+                    setConfidenceSort(prev => {
+                      if (prev === 'default') return 'asc'
+                      if (prev === 'asc') return 'desc'
+                      return 'default'
+                    })
+                    setCurrentPage(1)
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    border: confidenceSort !== 'default' ? '1px solid #007bff' : '1px solid #ced4da',
+                    borderRadius: '4px',
+                    background: confidenceSort !== 'default' ? '#e7f3ff' : 'white',
+                    color: '#495057',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem',
+                  }}
+                >
+                  Sort by confidence
+                  {confidenceSort === 'asc' ? ' ↑' : confidenceSort === 'desc' ? ' ↓' : ''}
+                </button>
+              </div>
+            )}
             {totalCount > 0 && (
               <span style={{ color: '#495057', fontSize: '0.875rem' }}>
                 Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalCount)} of {totalCount} transactions
@@ -2501,12 +2795,29 @@ function App() {
                 <th style={{ width: '40px' }}>Select</th>
                 <th style={{ width: '40px' }}>✓</th>
                 <th style={{ width: '120px' }}>Date</th>
+                {viewMode === 'unvalidated_predicted' && <th style={{ width: '56px' }}></th>}
                 <th>Description</th>
                 <th>Predicted Category</th>
                 <th>Amount</th>
                 <th>{viewMode === 'validated' ? 'Assigned Category' : 'Assign Category'}</th>
                 <th style={{ width: '200px' }}>Account</th>
-                {viewMode === 'unvalidated_predicted' && <th style={{ width: '80px' }}>Confidence %</th>}
+                {viewMode === 'unvalidated_predicted' && (
+                  <th
+                    style={{ width: '80px', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => {
+                      setConfidenceSort(prev => {
+                        if (prev === 'default') return 'asc'
+                        if (prev === 'asc') return 'desc'
+                        return 'default'
+                      })
+                      setCurrentPage(1)
+                    }}
+                    title="Click to sort by confidence"
+                  >
+                    Confidence %
+                    {confidenceSort === 'asc' ? ' ↑' : confidenceSort === 'desc' ? ' ↓' : ''}
+                  </th>
+                )}
                 {showNotes && <th style={{ width: '150px' }}>Notes</th>}
                 {!showNotes && (
                   <th style={{ width: '40px', textAlign: 'center' }}>
@@ -2584,6 +2895,9 @@ function App() {
                     />
                   </td>
                   <td>{formatDate(transaction.transacted_date)}</td>
+                  {viewMode === 'unvalidated_predicted' && (
+                    <td style={{ textAlign: 'center' }}>{getLowConfidenceTag(transaction)}</td>
+                  )}
                   <td>{transaction.description || '-'}</td>
                   <td>{getPredictedCategoryDisplay(transaction)}</td>
                   <td>{formatAmount(transaction.amount)}</td>

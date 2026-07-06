@@ -99,6 +99,66 @@ tr:hover {
   color: #155724;
 }
 
+.confidence-tag-low {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeeba;
+  white-space: nowrap;
+}
+
+.editor-mode-banner {
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+  color: #856404;
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.editor-toolbar-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.97);
+  border-bottom: 1px solid #dee2e6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.editor-toolbar-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  flex-wrap: wrap;
+}
+
+.btn-save {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-save:hover:not(:disabled) {
+  background-color: #218838;
+}
+
+.btn-save:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 
 .category-select {
   padding: 6px 12px;

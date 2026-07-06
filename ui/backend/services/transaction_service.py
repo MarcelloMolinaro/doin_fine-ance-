@@ -266,7 +266,11 @@ def get_transactions_filtered(
     limit: int = 100,
     offset: int = 0,
     view_mode: Optional[str] = None,  # 'unvalidated_predicted', 'unvalidated_unpredicted', 'validated', None (all)
-    description_search: Optional[str] = None
+    description_search: Optional[str] = None,
+    exclude_low_confidence: bool = False,
+    low_confidence_threshold: float = 0.35,
+    sort_by: Optional[str] = None,
+    sort_order: str = "desc",
 ) -> dict:
     """
     Get transactions filtered by validation and prediction status.
@@ -306,8 +310,22 @@ def get_transactions_filtered(
     if description_search:
         conditions.append("t.description ILIKE :description_search")
         params["description_search"] = f"%{description_search}%"
+
+    if exclude_low_confidence and view_mode == 'unvalidated_predicted':
+        conditions.append(
+            "(t.prediction_confidence IS NULL OR t.prediction_confidence >= :low_confidence_threshold)"
+        )
+        params["low_confidence_threshold"] = low_confidence_threshold
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+    allowed_sort_columns = {
+        "transacted_date": "t.transacted_date",
+        "prediction_confidence": "t.prediction_confidence",
+    }
+    order_column = allowed_sort_columns.get(sort_by or "transacted_date", "t.transacted_date")
+    order_direction = "ASC" if sort_order.lower() == "asc" else "DESC"
+    order_clause = f"{order_column} {order_direction} NULLS LAST"
     
     # First, get total count for pagination
     count_query = text(f"""
@@ -339,7 +357,7 @@ def get_transactions_filtered(
         FROM analytics.fct_trxns_with_predictions t
         LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
         WHERE {where_clause}
-        ORDER BY t.transacted_date DESC NULLS LAST
+        ORDER BY {order_clause}
         LIMIT :limit OFFSET :offset
     """)
     
@@ -471,6 +489,41 @@ def bulk_validate_transactions(db: Session, transaction_ids: List[str]) -> int:
     
     db.commit()
     return updated_count
+
+
+def update_validated_transaction_category(
+    db: Session,
+    transaction_id: str,
+    master_category: str,
+) -> UserCategory:
+    """Update category for a validated transaction (All Data source of truth)."""
+    from schemas.transaction import CategorizeRequest
+
+    user_category = db.query(UserCategory).filter(
+        UserCategory.transaction_id == transaction_id
+    ).first()
+
+    if not user_category or not user_category.validated:
+        raise ValueError(
+            f"Transaction {transaction_id} is not validated. "
+            "Only validated transactions can be edited in All Data."
+        )
+
+    result = categorize_transaction(
+        db,
+        transaction_id,
+        CategorizeRequest(
+            master_category=master_category,
+            source_category=user_category.source_category,
+            notes=user_category.notes,
+            validated=True,
+        ),
+    )
+
+    from services.dagster_trigger import schedule_editor_category_fix_pipeline
+    schedule_editor_category_fix_pipeline()
+
+    return result
 
 
 def bulk_categorize_validated(db: Session, master_category: str) -> Tuple[int, int]:

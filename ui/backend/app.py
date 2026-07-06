@@ -9,11 +9,11 @@ from api.control_center import router as control_center_router
 from api.model_metrics import router as model_metrics_router
 from api.backup import router as backup_router
 from db.connection import engine
-from models.transaction import Base
+from models.transaction import UserCategory
 
-# Create database tables if they don't exist
-# Note: This only creates user_categories table, not the analytics schema tables
-Base.metadata.create_all(bind=engine)
+# Only create tables we own (user_categories). Do NOT create analytics.fct_trxns_with_predictions:
+# that name is a dbt VIEW; create_all would add an empty TABLE and hide all uncategorized rows.
+UserCategory.__table__.create(bind=engine, checkfirst=True)
 
 
 @asynccontextmanager

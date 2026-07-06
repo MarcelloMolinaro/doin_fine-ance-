@@ -4,10 +4,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
 from db.connection import get_db
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import datetime
 import logging
+from services.transaction_service import update_validated_transaction_category, get_categories
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,17 @@ class ValidatedTransactionsResponse(BaseModel):
     """Response schema for validated transactions with total count."""
     transactions: List[ValidatedTransactionResponse]
     total_count: int
+
+
+class UpdateValidatedCategoryRequest(BaseModel):
+    """Request schema for updating a validated transaction's category."""
+    master_category: str = Field(..., min_length=1)
+
+
+class UpdateValidatedCategoryResponse(BaseModel):
+    transaction_id: str
+    master_category: str
+    message: str
 
 
 @router.get("", response_model=ValidatedTransactionsResponse)
@@ -170,3 +182,32 @@ def list_categories(db: Session = Depends(get_db)):
     result = db.execute(query)
     categories = [row.master_category for row in result if row.master_category]
     return categories
+
+
+@router.get("/categories/all", response_model=List[str])
+def list_all_categories_for_editor(db: Session = Depends(get_db)):
+    """All categories available when editing validated data (includes training categories)."""
+    return get_categories(db)
+
+
+@router.put("/{transaction_id}/category", response_model=UpdateValidatedCategoryResponse)
+def update_validated_category(
+    transaction_id: str,
+    request: UpdateValidatedCategoryRequest,
+    db: Session = Depends(get_db),
+):
+    """Update master_category for a validated transaction (All Data editor)."""
+    try:
+        user_category = update_validated_transaction_category(
+            db, transaction_id, request.master_category
+        )
+        return UpdateValidatedCategoryResponse(
+            transaction_id=user_category.transaction_id,
+            master_category=user_category.master_category,
+            message="Category updated. Full refresh + retrain scheduled (~45s after your last edit).",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to update validated category: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
