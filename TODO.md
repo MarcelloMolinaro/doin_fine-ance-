@@ -1,7 +1,12 @@
 # TODOs
 
 ## Short Term
+- [ ] Overwrite the source account names in the validated table...
+    - [x] add the remaining account mappings to the seed file
+    - [ ] make it so the seeds don't show in git (gitignore wtf?)
 - [ ] Make a readme note on forcing seed mapping - line 24 stg_simplefin.sql model
+- [ ] Ability to mark a transaction as "Exclude from forecasting"
+
 
 ### Dagster
 - [ ] Using Postgres 15, it's a but old (Postgres 17/18 are new)
@@ -17,7 +22,6 @@
 - [ ] Consider testing a Chrome MCP for Cursor to check its work?
 - [ ] What's up with the .user.yml file? untrack that?
 - [ ] Add a flow for "Import CSV" of historic transaction
-- [ ] Consider an "Edit Validated Transactions" feature...
 - [ ] Improve the filtering you can do on each page, perhaps create an accounts endpoint that allows you to easily filter by account, rather than by typing?
 
 
