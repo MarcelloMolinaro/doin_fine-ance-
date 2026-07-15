@@ -48,5 +48,17 @@ class UserCategory(Base):
     source_category = Column(Text)
     notes = Column(Text)
     validated = Column(Boolean, default=False)
+    exclude_from_forecast = Column(Boolean, default=False)
     updated_by = Column(Text, default="system")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Category(Base):
+    """Catalog of master categories available for assignment."""
+    __tablename__ = "categories"
+    __table_args__ = {"schema": "public"}
+
+    name = Column(Text, primary_key=True)
+    is_default = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

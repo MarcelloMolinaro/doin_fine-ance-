@@ -12,6 +12,7 @@ from services.transaction_service import (
     get_transactions_filtered,
     update_validation,
     update_notes,
+    update_exclude_from_forecast,
     bulk_validate_transactions
 )
 from schemas.transaction import (
@@ -19,7 +20,8 @@ from schemas.transaction import (
     CategorizeRequest, 
     CategorizeResponse,
     UpdateValidationRequest,
-    UpdateNotesRequest
+    UpdateNotesRequest,
+    UpdateExcludeFromForecastRequest,
 )
 
 
@@ -76,6 +78,9 @@ def categorize_transaction_endpoint(
         transaction_id=user_category.transaction_id,
         master_category=user_category.master_category,
         source_category=user_category.source_category,
+        notes=user_category.notes,
+        validated=bool(user_category.validated),
+        exclude_from_forecast=bool(user_category.exclude_from_forecast),
         updated_at=user_category.updated_at
     )
 
@@ -124,6 +129,25 @@ def update_transaction_notes(
         return {"transaction_id": transaction_id, "notes": user_category.notes}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.put("/{transaction_id}/exclude-from-forecast")
+def update_transaction_exclude_from_forecast(
+    transaction_id: str,
+    request: UpdateExcludeFromForecastRequest,
+    db: Session = Depends(get_db)
+):
+    """Update whether a transaction should be excluded from forecasting."""
+    try:
+        user_category = update_exclude_from_forecast(
+            db, transaction_id, request.exclude_from_forecast
+        )
+        return {
+            "transaction_id": transaction_id,
+            "exclude_from_forecast": user_category.exclude_from_forecast,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/bulk-validate")

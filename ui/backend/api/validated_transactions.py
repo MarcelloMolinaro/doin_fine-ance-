@@ -27,6 +27,7 @@ class ValidatedTransactionResponse(BaseModel):
     master_category: Optional[str] = None
     source_category: Optional[str] = None
     user_notes: Optional[str] = None
+    exclude_from_forecast: Optional[bool] = False
     
     class Config:
         from_attributes = True
@@ -72,52 +73,54 @@ def list_validated_transactions(
     sort_column = sort_by if sort_by else "transacted_date"
     sort_direction = "DESC" if sort_order.lower() == "desc" else "ASC"
     
-    # Build WHERE conditions
+    # Build WHERE conditions (qualified for join with user_categories)
     conditions = []
     params = {}
     
     if category:
-        conditions.append("master_category = :category")
+        conditions.append("v.master_category = :category")
         params["category"] = category
     
     if account_name_filter:
-        conditions.append("account_name ILIKE :account_filter")
+        conditions.append("v.account_name ILIKE :account_filter")
         params["account_filter"] = f"%{account_name_filter}%"
     
     if description_search:
-        conditions.append("description ILIKE :description_search")
+        conditions.append("v.description ILIKE :description_search")
         params["description_search"] = f"%{description_search}%"
     
     # Always filter out NULL transaction_ids (they shouldn't exist but handle gracefully)
-    base_conditions = ["transaction_id IS NOT NULL"]
+    base_conditions = ["v.transaction_id IS NOT NULL"]
     if conditions:
         base_conditions.extend(conditions)
     
     where_clause = " AND ".join(base_conditions)
     
-    # First, get total count
     count_query_str = f"""
         SELECT COUNT(*) as total
-        FROM analytics.fct_validated_trxns
+        FROM analytics.fct_validated_trxns v
+        LEFT JOIN public.user_categories uc ON v.transaction_id = uc.transaction_id
         WHERE {where_clause}
     """
     
     # Build query - using f-string for ORDER BY is safe since we validate sort_column
     query_str = f"""
         SELECT 
-            transaction_id,
-            account_id,
-            account_name,
-            institution_name,
-            amount,
-            transacted_date,
-            description,
-            master_category,
-            source_category,
-            user_notes
-        FROM analytics.fct_validated_trxns
+            v.transaction_id,
+            v.account_id,
+            v.account_name,
+            v.institution_name,
+            v.amount,
+            v.transacted_date,
+            v.description,
+            v.master_category,
+            v.source_category,
+            v.user_notes,
+            COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
+        FROM analytics.fct_validated_trxns v
+        LEFT JOIN public.user_categories uc ON v.transaction_id = uc.transaction_id
         WHERE {where_clause}
-        ORDER BY {sort_column} {sort_direction}
+        ORDER BY v.{sort_column} {sort_direction}
         LIMIT :limit OFFSET :offset
     """
     
@@ -147,7 +150,8 @@ def list_validated_transactions(
                 description=getattr(row, 'description', None),
                 master_category=getattr(row, 'master_category', None),
                 source_category=getattr(row, 'source_category', None),
-                user_notes=getattr(row, 'user_notes', None)
+                user_notes=getattr(row, 'user_notes', None),
+                exclude_from_forecast=bool(getattr(row, 'exclude_from_forecast', False)),
             ))
         
         return ValidatedTransactionsResponse(

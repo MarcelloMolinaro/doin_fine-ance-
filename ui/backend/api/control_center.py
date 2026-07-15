@@ -41,6 +41,123 @@ class InitializationStatusResponse(BaseModel):
     message: Optional[str] = None
 
 
+class ConnectionInfo(BaseModel):
+    """Per-account connection health summary."""
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
+    institution_name: Optional[str] = None
+    last_successful_load: Optional[str] = None
+    latest_transaction_date: Optional[str] = None
+    transaction_count: int = 0
+    lookback_days: Optional[int] = None
+    buffer_days: Optional[int] = None
+    days_since_last_load: Optional[int] = None
+    days_since_latest_transaction: Optional[int] = None
+    health_status: str = "healthy"
+    health_message: Optional[str] = None
+
+
+class ConnectionsResponse(BaseModel):
+    """Response schema for connections list."""
+    connections: List[ConnectionInfo]
+    total_count: int
+
+
+@router.get("/connections", response_model=ConnectionsResponse)
+def list_connections():
+    """
+    List SimpleFIN connections (accounts) grouped by institution,
+    with lookback-window health checks.
+    """
+    from services.connection_health import compute_connection_health
+
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                WITH latest_imports AS (
+                    SELECT account_id, MAX(import_timestamp) AS latest_import
+                    FROM public.simplefin
+                    GROUP BY account_id
+                ),
+                latest_poll_rows AS (
+                    SELECT
+                        s.institution_name,
+                        REGEXP_REPLACE(TRIM(s.account_name), '\\s*\\([0-9]+\\)\\s*$', '') AS account_key,
+                        s.account_id,
+                        s.transacted_date,
+                        li.latest_import AS last_successful_load
+                    FROM public.simplefin s
+                    INNER JOIN latest_imports li
+                        ON s.account_id = li.account_id
+                        AND s.import_timestamp = li.latest_import
+                ),
+                account_polls AS (
+                    SELECT
+                        institution_name,
+                        account_key,
+                        account_id,
+                        last_successful_load,
+                        MIN(transacted_date) AS poll_earliest,
+                        MAX(transacted_date) AS poll_latest
+                    FROM latest_poll_rows
+                    GROUP BY institution_name, account_key, account_id, last_successful_load
+                ),
+                account_stored AS (
+                    SELECT
+                        institution_name,
+                        REGEXP_REPLACE(TRIM(account_name), '\\s*\\([0-9]+\\)\\s*$', '') AS account_key,
+                        MIN(transacted_date) AS oldest_stored,
+                        COUNT(*) AS transaction_count
+                    FROM public.simplefin
+                    GROUP BY institution_name, account_key
+                )
+                SELECT
+                    MAX(ap.account_id) AS account_id,
+                    ap.institution_name,
+                    ap.account_key AS account_name,
+                    MAX(ap.last_successful_load) AS last_successful_load,
+                    ast.oldest_stored AS oldest_stored_transaction_date,
+                    MIN(ap.poll_earliest) AS poll_earliest_transaction_date,
+                    MAX(ap.poll_latest) AS poll_latest_transaction_date,
+                    MAX(ast.transaction_count) AS transaction_count
+                FROM account_polls ap
+                INNER JOIN account_stored ast
+                    ON ap.institution_name IS NOT DISTINCT FROM ast.institution_name
+                    AND ap.account_key = ast.account_key
+                GROUP BY ap.institution_name, ap.account_key, ast.oldest_stored
+                ORDER BY ap.institution_name NULLS LAST, ap.account_key NULLS LAST
+            """))
+            connections = []
+            for row in result:
+                health = compute_connection_health(
+                    last_successful_load=row.last_successful_load,
+                    poll_earliest_transaction_date=row.poll_earliest_transaction_date,
+                    poll_latest_transaction_date=row.poll_latest_transaction_date,
+                    oldest_stored_transaction_date=row.oldest_stored_transaction_date,
+                )
+                connections.append(ConnectionInfo(
+                    account_id=row.account_id,
+                    account_name=row.account_name,
+                    institution_name=row.institution_name,
+                    last_successful_load=row.last_successful_load,
+                    latest_transaction_date=row.poll_latest_transaction_date,
+                    transaction_count=int(row.transaction_count or 0),
+                    lookback_days=health["lookback_days"],
+                    buffer_days=health["buffer_days"],
+                    days_since_last_load=health["days_since_last_load"],
+                    days_since_latest_transaction=health["days_since_latest_transaction"],
+                    health_status=health["health_status"],
+                    health_message=health["health_message"],
+                ))
+            return ConnectionsResponse(connections=connections, total_count=len(connections))
+    except Exception as e:
+        logger.error(f"Error listing connections: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing connections: {str(e)}",
+        )
+
+
 @router.post("/trigger-ingest-and-predict", response_model=TriggerJobResponse)
 def trigger_ingest_and_predict_job():
     """Trigger Dagster job to ingest data and predict categories."""

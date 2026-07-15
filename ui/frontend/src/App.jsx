@@ -17,6 +17,7 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState({})
   const [notes, setNotes] = useState({})
   const [validated, setValidated] = useState({})
+  const [excludeFromForecast, setExcludeFromForecast] = useState({})
   const [selectedTransactions, setSelectedTransactions] = useState(new Set()) // New: selection state (separate from validation)
   const [activeTab, setActiveTab] = useState('control-center') // 'control-center', 'transactions', 'model-details', 'all-data', 'backup'
   const [viewMode, setViewMode] = useState('unvalidated_predicted') // 'unvalidated_predicted', 'unvalidated_unpredicted', 'validated'
@@ -162,11 +163,13 @@ function App() {
       // Initialize state from fetched transactions, but preserve existing user-assigned categories
       const initialNotes = {}
       const initialValidated = {}
+      const initialExcludeFromForecast = {}
       const initialSelected = {}
       
       fetchedTransactions.forEach(t => {
         if (t.notes) initialNotes[t.transaction_id] = t.notes
         if (t.validated !== undefined) initialValidated[t.transaction_id] = t.validated
+        if (t.exclude_from_forecast) initialExcludeFromForecast[t.transaction_id] = true
         // Only set selected category if user has assigned one (master_category from user_categories)
         // This represents validated categories from the database
         if (t.master_category) {
@@ -176,6 +179,7 @@ function App() {
       
       setNotes(prevNotes => ({ ...prevNotes, ...initialNotes }))
       setValidated(prevValidated => ({ ...prevValidated, ...initialValidated }))
+      setExcludeFromForecast(prev => ({ ...prev, ...initialExcludeFromForecast }))
       // Merge with existing selectedCategory to preserve user assignments for transactions not in current view
       // Database values (initialSelected) will override local values for fetched transactions, which is correct
       // But local assignments for transactions not in current fetch will be preserved
@@ -217,7 +221,8 @@ function App() {
             master_category: masterCategory,
             source_category: null,
             notes: currentNote,
-            validated: currentValidated
+            validated: currentValidated,
+            exclude_from_forecast: excludeFromForecast[transactionId] || false,
           }
         )
 
@@ -267,7 +272,8 @@ function App() {
               master_category: categoryToUse,
               source_category: null,
               notes: notes[transactionId] || null,
-              validated: true
+              validated: true,
+              exclude_from_forecast: excludeFromForecast[transactionId] || false,
             }
           )
           
@@ -281,7 +287,8 @@ function App() {
               master_category: categoryToUse || transaction?.master_category,
               source_category: null,
               notes: notes[transactionId] || null,
-              validated: false
+              validated: false,
+              exclude_from_forecast: excludeFromForecast[transactionId] || false,
             }
           )
           
@@ -327,6 +334,24 @@ function App() {
     // Otherwise notes are stored in local state only and will be saved when validated
   }
 
+  const handleExcludeFromForecastToggle = async (transactionId, newValue) => {
+    setExcludeFromForecast(prev => ({ ...prev, [transactionId]: newValue }))
+
+    const transaction = transactions.find(t => t.transaction_id === transactionId)
+    if (transaction?.validated) {
+      try {
+        setError(null)
+        await axios.put(
+          `${API_BASE_URL}/api/transactions/${transactionId}/exclude-from-forecast`,
+          { exclude_from_forecast: newValue }
+        )
+      } catch (err) {
+        setExcludeFromForecast(prev => ({ ...prev, [transactionId]: !newValue }))
+        setError(`Failed to update forecast exclusion: ${err.message}`)
+      }
+    }
+  }
+
   const handleBulkValidate = async () => {
     try {
       setValidatingAll(true)
@@ -366,7 +391,8 @@ function App() {
                 master_category: categoryToUse,
                 source_category: null,
                 notes: notes[transaction.transaction_id] || null,
-                validated: true
+                validated: true,
+                exclude_from_forecast: excludeFromForecast[transaction.transaction_id] || false,
               }
             )
             validatedCount++
@@ -423,7 +449,8 @@ function App() {
               master_category: assignedCategory,
               source_category: null,
               notes: notes[transaction.transaction_id] || null,
-              validated: true
+              validated: true,
+              exclude_from_forecast: excludeFromForecast[transaction.transaction_id] || false,
             }
           )
           validatedCount++
@@ -478,7 +505,8 @@ function App() {
               master_category: assignedCategory,
               source_category: null,
               notes: notes[transaction.transaction_id] || null,
-              validated: true
+              validated: true,
+              exclude_from_forecast: excludeFromForecast[transaction.transaction_id] || false,
             }
           )
           validatedCount++
@@ -848,6 +876,67 @@ function App() {
     )
   }
 
+  const renderTransactionDetailsCell = ({
+    transactionId,
+    noteValue,
+    onNoteBlur,
+    excludeValue,
+    onExcludeChange,
+    persistExcludeImmediately = false,
+  }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '180px' }}>
+      <input
+        key={`notes-${transactionId}`}
+        type="text"
+        placeholder="Add note..."
+        defaultValue={noteValue || ''}
+        onBlur={onNoteBlur}
+        className="notes-input"
+        style={{ width: '100%', padding: '4px 8px', border: '1px solid #ced4da', borderRadius: '4px' }}
+      />
+      <label
+        style={{
+          fontSize: '0.8rem',
+          color: '#6c757d',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '6px',
+          lineHeight: 1.3,
+          cursor: 'pointer',
+        }}
+        title="When checked, this transaction won't be used in future forecasting"
+      >
+        <input
+          type="checkbox"
+          checked={excludeValue || false}
+          onChange={(e) => onExcludeChange(transactionId, e.target.checked)}
+          style={{ width: '16px', height: '16px', marginTop: '2px', flexShrink: 0 }}
+        />
+        <span>Skip in forecasts{!persistExcludeImmediately ? ' (saved on validate)' : ''}</span>
+      </label>
+    </div>
+  )
+
+  const renderExcludedIndicator = (transactionId) => {
+    if (!excludeFromForecast[transactionId]) return null
+    return (
+      <span
+        title="Excluded from forecasting"
+        style={{
+          marginLeft: '6px',
+          fontSize: '0.7rem',
+          color: '#856404',
+          backgroundColor: '#fff3cd',
+          padding: '1px 6px',
+          borderRadius: '8px',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        no forecast
+      </span>
+    )
+  }
+
   // Tab navigation
   const renderTabs = () => {
     return (
@@ -943,6 +1032,15 @@ function App() {
 
   // Control Center Page Component
   const ControlCenterPage = () => {
+    const [connections, setConnections] = useState([])
+    const [loadingConnections, setLoadingConnections] = useState(true)
+    const [connectionsError, setConnectionsError] = useState(null)
+    const [catalogCategories, setCatalogCategories] = useState([])
+    const [loadingCatalogCategories, setLoadingCatalogCategories] = useState(true)
+    const [catalogError, setCatalogError] = useState(null)
+    const [newCategoryName, setNewCategoryName] = useState('')
+    const [addingCategory, setAddingCategory] = useState(false)
+    const [updatingCategory, setUpdatingCategory] = useState(null)
 
     const formatTimestamp = (timestamp) => {
       if (!timestamp) return 'Unknown time'
@@ -968,11 +1066,117 @@ function App() {
       }
     }
 
+    const formatDateOnly = (dateString) => {
+      if (!dateString) return '-'
+      const date = new Date(dateString.includes('T') ? dateString : `${dateString}T00:00:00`)
+      if (isNaN(date.getTime())) return dateString
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    }
+
+    const fetchConnections = async () => {
+      try {
+        setLoadingConnections(true)
+        setConnectionsError(null)
+        const response = await axios.get(`${API_BASE_URL}/api/control-center/connections`)
+        setConnections(response.data.connections || [])
+      } catch (err) {
+        setConnectionsError(`Failed to load connections: ${err.message}`)
+      } finally {
+        setLoadingConnections(false)
+      }
+    }
+
+    const fetchCatalogCategories = async () => {
+      try {
+        setLoadingCatalogCategories(true)
+        setCatalogError(null)
+        const response = await axios.get(`${API_BASE_URL}/api/categories`)
+        setCatalogCategories(response.data || [])
+      } catch (err) {
+        setCatalogError(`Failed to load categories: ${err.message}`)
+      } finally {
+        setLoadingCatalogCategories(false)
+      }
+    }
+
+    useEffect(() => {
+      fetchConnections()
+      fetchCatalogCategories()
+    }, [])
+
+    const handleAddCategory = async (e) => {
+      e.preventDefault()
+      const trimmed = newCategoryName.trim()
+      if (!trimmed) return
+
+      try {
+        setAddingCategory(true)
+        setCatalogError(null)
+        await axios.post(`${API_BASE_URL}/api/categories`, { name: trimmed })
+        setNewCategoryName('')
+        await fetchCatalogCategories()
+        await fetchCategories()
+      } catch (err) {
+        setCatalogError(err.response?.data?.detail || err.message)
+      } finally {
+        setAddingCategory(false)
+      }
+    }
+
+    const handleToggleCategoryActive = async (categoryName, isActive) => {
+      try {
+        setUpdatingCategory(categoryName)
+        setCatalogError(null)
+        const response = await axios.put(`${API_BASE_URL}/api/categories/${encodeURIComponent(categoryName)}/active`, {
+          is_active: isActive,
+        })
+        setCatalogCategories((prev) =>
+          prev.map((cat) => (cat.name === categoryName ? response.data : cat))
+        )
+        await fetchCategories()
+      } catch (err) {
+        setCatalogError(err.response?.data?.detail || err.message)
+      } finally {
+        setUpdatingCategory(null)
+      }
+    }
+
+    const getHealthBadgeStyle = (status) => {
+      if (status === 'healthy') {
+        return { backgroundColor: '#d4edda', color: '#155724', border: '1px solid #c3e6cb' }
+      }
+      if (status === 'warning') {
+        return { backgroundColor: '#fff3cd', color: '#856404', border: '1px solid #ffeeba' }
+      }
+      return { backgroundColor: '#f8d7da', color: '#721c24', border: '1px solid #f5c6cb' }
+    }
+
+    const formatLoadCoverage = (conn) => {
+      const parts = []
+      if (conn.lookback_days != null) {
+        parts.push(`~${conn.lookback_days}d window`)
+      }
+      if (conn.buffer_days != null && conn.buffer_days > 0) {
+        parts.push(`${conn.buffer_days}d until history loss`)
+      } else if (conn.buffer_days != null && conn.buffer_days <= 0) {
+        parts.push(`${Math.abs(conn.buffer_days)}d past edge (stored)`)
+      }
+      return parts.length > 0 ? parts.join(' · ') : null
+    }
+
+    const cardStyle = {
+      background: 'white',
+      padding: '30px',
+      borderRadius: '8px',
+      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+      marginBottom: '30px',
+    }
+
     return (
       <div className="placeholder-page">
         <div className="header">
           <h1>Control Center</h1>
-          <p>Manage data ingestion and monitor system status.</p>
+          <p>Manage data ingestion, connections, categories, and system status.</p>
         </div>
 
         {/* Initialization Section - Only shows when needed */}
@@ -1040,13 +1244,7 @@ function App() {
         )}
 
         {/* Job Trigger Section */}
-        <div style={{ 
-          background: 'white', 
-          padding: '30px', 
-          borderRadius: '8px', 
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-          marginBottom: '30px'
-        }}>
+        <div style={cardStyle}>
           <h2 style={{ marginTop: 0, marginBottom: '15px', fontSize: '1.5rem' }}>Data Ingestion</h2>
           <p style={{ color: '#6c757d', marginBottom: '20px' }}>
             Trigger the ingest and predict job to fetch new transactions from SimpleFIN and generate category predictions.
@@ -1078,6 +1276,216 @@ function App() {
           >
             {triggeringIngest ? 'Triggering Job...' : 'Run Ingest & Predict Job'}
           </button>
+        </div>
+
+        {/* Connections Section */}
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2 style={{ marginTop: 0, fontSize: '1.5rem' }}>Connections</h2>
+            <button
+              onClick={fetchConnections}
+              disabled={loadingConnections}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: loadingConnections ? 'not-allowed' : 'pointer',
+                fontSize: '0.875rem',
+                opacity: loadingConnections ? 0.6 : 1
+              }}
+            >
+              {loadingConnections ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+          <p style={{ color: '#6c757d', marginBottom: '20px' }}>
+            Health reflects how much history buffer remains before stored transactions hit each
+            institution&apos;s rolling window (warning at 30 days, unhealthy at 14).
+          </p>
+
+          {connectionsError && (
+            <div className="error" style={{ marginBottom: '15px' }}>{connectionsError}</div>
+          )}
+
+          {loadingConnections ? (
+            <div className="loading" style={{ padding: '20px' }}>Loading connections...</div>
+          ) : connections.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#6c757d', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+              No connections found. Run ingest to load SimpleFIN data.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Institution</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Account</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Health</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Last Load</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Latest Transaction</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {connections.map((conn) => {
+                    const coverage = formatLoadCoverage(conn)
+                    return (
+                    <tr key={`${conn.institution_name}-${conn.account_name}`} style={{ borderBottom: '1px solid #dee2e6' }}>
+                      <td style={{ padding: '10px' }}>{conn.institution_name || '-'}</td>
+                      <td style={{ padding: '10px' }}>{conn.account_name || conn.account_id || '-'}</td>
+                      <td style={{ padding: '10px' }}>
+                        <span
+                          title={conn.health_message || ''}
+                          style={{
+                            ...getHealthBadgeStyle(conn.health_status),
+                            padding: '4px 10px',
+                            borderRadius: '12px',
+                            fontSize: '0.8rem',
+                            fontWeight: '600',
+                            textTransform: 'capitalize',
+                            display: 'inline-block',
+                            cursor: conn.health_message ? 'help' : 'default',
+                          }}
+                        >
+                          {conn.health_status || 'unknown'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px' }}>
+                        {formatDateOnly(conn.last_successful_load)}
+                        {conn.days_since_last_load != null && (
+                          <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>
+                            {conn.days_since_last_load} day{conn.days_since_last_load === 1 ? '' : 's'} ago
+                          </div>
+                        )}
+                        {coverage && (
+                          <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '2px' }}>
+                            {coverage}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px' }}>
+                        {formatDateOnly(conn.latest_transaction_date)}
+                        {conn.days_since_latest_transaction != null && (
+                          <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>
+                            {conn.days_since_latest_transaction} day{conn.days_since_latest_transaction === 1 ? '' : 's'} ago
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Categories Section */}
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2 style={{ marginTop: 0, fontSize: '1.5rem' }}>Categories</h2>
+            <button
+              onClick={fetchCatalogCategories}
+              disabled={loadingCatalogCategories}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: loadingCatalogCategories ? 'not-allowed' : 'pointer',
+                fontSize: '0.875rem',
+                opacity: loadingCatalogCategories ? 0.6 : 1
+              }}
+            >
+              {loadingCatalogCategories ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+          <p style={{ color: '#6c757d', marginBottom: '20px' }}>
+            Manage categories available in dropdowns. Deactivating hides a category from new assignments but leaves existing transactions unchanged.
+          </p>
+
+          {catalogError && (
+            <div className="error" style={{ marginBottom: '15px' }}>{catalogError}</div>
+          )}
+
+          <form onSubmit={handleAddCategory} style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              placeholder="Add new category..."
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              style={{ padding: '8px 12px', border: '1px solid #ced4da', borderRadius: '4px', minWidth: '240px', flex: '1' }}
+            />
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={addingCategory || !newCategoryName.trim()}
+              style={{ padding: '8px 16px' }}
+            >
+              {addingCategory ? 'Adding...' : 'Add Category'}
+            </button>
+          </form>
+
+          {loadingCatalogCategories ? (
+            <div className="loading" style={{ padding: '20px' }}>Loading categories...</div>
+          ) : (
+            <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Category</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
+                    <th style={{ padding: '10px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {catalogCategories.map((cat) => (
+                    <tr key={cat.name} style={{ borderBottom: '1px solid #dee2e6', opacity: cat.is_active ? 1 : 0.65 }}>
+                      <td style={{ padding: '10px' }}>{cat.name}</td>
+                      <td style={{ padding: '10px' }}>
+                        <span style={{ display: 'inline-flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {cat.is_default && (
+                            <span style={{ backgroundColor: '#e7f3ff', color: '#004085', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>Default</span>
+                          )}
+                          {!cat.is_default && (
+                            <span style={{ backgroundColor: '#f1f3f5', color: '#495057', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>Custom</span>
+                          )}
+                          {cat.in_use && (
+                            <span style={{ backgroundColor: '#d4edda', color: '#155724', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>In use</span>
+                          )}
+                          {!cat.is_active && (
+                            <span style={{ backgroundColor: '#f8d7da', color: '#721c24', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>Inactive</span>
+                          )}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'right' }}>
+                        {cat.is_active ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCategoryActive(cat.name, false)}
+                            disabled={updatingCategory === cat.name}
+                            style={{ padding: '6px 12px', border: '1px solid #ced4da', borderRadius: '4px', background: 'white', cursor: 'pointer', fontSize: '0.875rem' }}
+                          >
+                            {updatingCategory === cat.name ? 'Updating...' : 'Deactivate'}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCategoryActive(cat.name, true)}
+                            disabled={updatingCategory === cat.name}
+                            style={{ padding: '6px 12px', border: '1px solid #28a745', borderRadius: '4px', background: '#28a745', color: 'white', cursor: 'pointer', fontSize: '0.875rem' }}
+                          >
+                            {updatingCategory === cat.name ? 'Updating...' : 'Reactivate'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Connection Error Instructions Section */}
@@ -1722,6 +2130,7 @@ function App() {
     const [availableCategories, setAvailableCategories] = useState([])
     const [showNotes, setShowNotes] = useState(false)
     const [notes, setNotes] = useState({})
+    const [excludeFromForecast, setExcludeFromForecast] = useState({})
     const [currentPage, setCurrentPage] = useState(1)
     const [pageSize] = useState(100) // Records per page
     const [totalCount, setTotalCount] = useState(0)
@@ -1792,10 +2201,13 @@ function App() {
         
         // Initialize notes state from fetched transactions
         const initialNotes = {}
+        const initialExcludeFromForecast = {}
         transactions.forEach(t => {
           if (t.user_notes) initialNotes[t.transaction_id] = t.user_notes
+          if (t.exclude_from_forecast) initialExcludeFromForecast[t.transaction_id] = true
         })
         setNotes(initialNotes)
+        setExcludeFromForecast(initialExcludeFromForecast)
       } catch (err) {
         setError(`Failed to load validated transactions: ${err.message}`)
         console.error(err)
@@ -1918,6 +2330,20 @@ function App() {
         return pendingCategoryEdits[transaction.transaction_id].new
       }
       return transaction.master_category || ''
+    }
+
+    const handleExcludeFromForecastAllData = async (transactionId, newValue) => {
+      setExcludeFromForecast(prev => ({ ...prev, [transactionId]: newValue }))
+      try {
+        setError(null)
+        await axios.put(
+          `${API_BASE_URL}/api/transactions/${transactionId}/exclude-from-forecast`,
+          { exclude_from_forecast: newValue }
+        )
+      } catch (err) {
+        setExcludeFromForecast(prev => ({ ...prev, [transactionId]: !newValue }))
+        setError(`Failed to update forecast exclusion: ${err.response?.data?.detail || err.message}`)
+      }
     }
 
     const handleSort = (column) => {
@@ -2071,7 +2497,7 @@ function App() {
                 borderRadius: '4px'
               }}
             >
-              Hide Notes Column
+              Hide Details Column
             </button>
           </div>
         )}
@@ -2172,9 +2598,8 @@ function App() {
                   >
                     Category {getSortIcon('master_category')}
                   </th>
-                  {showNotes && <th style={{ width: '150px' }}>Notes</th>}
-                  {!showNotes && (
-                    <th style={{ width: '40px', textAlign: 'center' }}>
+                  <th style={{ width: '40px', textAlign: 'center' }} title="Notes and forecast options">
+                    {!editorMode && !showNotes && (
                       <button
                         onClick={() => setShowNotes(true)}
                         style={{
@@ -2185,12 +2610,13 @@ function App() {
                           fontSize: '0.875rem',
                           padding: '4px 8px'
                         }}
-                        title="Show notes column"
+                        title="Show notes and forecast options"
                       >
-                        + Notes
+                        + Details
                       </button>
-                    </th>
-                  )}
+                    )}
+                    {!editorMode && showNotes && 'Details'}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2202,7 +2628,10 @@ function App() {
                     style={hasPendingEdit ? { backgroundColor: '#fff8e1' } : undefined}
                   >
                     <td>{formatDate(transaction.transacted_date)}</td>
-                    <td>{transaction.description || '-'}</td>
+                    <td>
+                      {transaction.description || '-'}
+                      {renderExcludedIndicator(transaction.transaction_id)}
+                    </td>
                     <td>{transaction.account_name || '-'}</td>
                     <td>{formatAmount(transaction.amount)}</td>
                     <td>
@@ -2248,27 +2677,26 @@ function App() {
                         <span style={{ color: '#6c757d' }}>-</span>
                       )}
                     </td>
-                    {showNotes && !editorMode && (
+                    {!editorMode && showNotes && (
                       <td>
-                        <input
-                          key={`notes-${transaction.transaction_id}`}
-                          type="text"
-                          placeholder="Add note..."
-                          defaultValue={notes[transaction.transaction_id] || ''}
-                          onBlur={(e) => {
+                        {renderTransactionDetailsCell({
+                          transactionId: transaction.transaction_id,
+                          noteValue: notes[transaction.transaction_id],
+                          onNoteBlur: (e) => {
                             const newValue = e.target.value
                             setNotes(prevNotes => ({
                               ...prevNotes,
                               [transaction.transaction_id]: newValue
                             }))
                             handleNotesUpdate(transaction.transaction_id, newValue)
-                          }}
-                          className="notes-input"
-                          style={{ width: '100%', padding: '4px 8px', border: '1px solid #ced4da', borderRadius: '4px' }}
-                        />
+                          },
+                          excludeValue: excludeFromForecast[transaction.transaction_id],
+                          onExcludeChange: handleExcludeFromForecastAllData,
+                          persistExcludeImmediately: true,
+                        })}
                       </td>
                     )}
-                    {!showNotes && !editorMode && <td></td>}
+                    {!editorMode && !showNotes && <td></td>}
                   </tr>
                 )})}
               </tbody>
@@ -2725,7 +3153,7 @@ function App() {
                 borderRadius: '4px'
               }}
             >
-              Hide Notes Column
+              Hide Details Column
             </button>
           </div>
         )}
@@ -2818,7 +3246,7 @@ function App() {
                     {confidenceSort === 'asc' ? ' ↑' : confidenceSort === 'desc' ? ' ↓' : ''}
                   </th>
                 )}
-                {showNotes && <th style={{ width: '150px' }}>Notes</th>}
+                {showNotes && <th style={{ width: '200px' }}>Details</th>}
                 {!showNotes && (
                   <th style={{ width: '40px', textAlign: 'center' }}>
                     <button
@@ -2831,9 +3259,9 @@ function App() {
                         fontSize: '0.875rem',
                         padding: '4px 8px'
                       }}
-                      title="Show notes column"
+                      title="Show notes and forecast options"
                     >
-                      + Notes
+                      + Details
                     </button>
                   </th>
                 )}
@@ -2898,7 +3326,10 @@ function App() {
                   {viewMode === 'unvalidated_predicted' && (
                     <td style={{ textAlign: 'center' }}>{getLowConfidenceTag(transaction)}</td>
                   )}
-                  <td>{transaction.description || '-'}</td>
+                  <td>
+                    {transaction.description || '-'}
+                    {renderExcludedIndicator(transaction.transaction_id)}
+                  </td>
                   <td>{getPredictedCategoryDisplay(transaction)}</td>
                   <td>{formatAmount(transaction.amount)}</td>
                   <td>
@@ -2975,24 +3406,21 @@ function App() {
                   {viewMode === 'unvalidated_predicted' && <td>{getConfidenceDisplay(transaction)}</td>}
                   {showNotes && (
                     <td>
-                      <input
-                        key={`notes-${transaction.transaction_id}`}
-                        type="text"
-                        placeholder="Add note..."
-                        defaultValue={notes[transaction.transaction_id] || ''}
-                        onBlur={(e) => {
+                      {renderTransactionDetailsCell({
+                        transactionId: transaction.transaction_id,
+                        noteValue: notes[transaction.transaction_id],
+                        onNoteBlur: (e) => {
                           const newValue = e.target.value
                           setNotes(prevNotes => ({
                             ...prevNotes,
                             [transaction.transaction_id]: newValue
                           }))
-                          // Notes are stored in local state only until transaction is validated
-                          // The handleNotesUpdate function will check if validated before saving to DB
                           handleNotesUpdate(transaction.transaction_id, newValue)
-                        }}
-                        className="notes-input"
-                        style={{ width: '100%', padding: '4px 8px', border: '1px solid #ced4da', borderRadius: '4px' }}
-                      />
+                        },
+                        excludeValue: excludeFromForecast[transaction.transaction_id],
+                        onExcludeChange: handleExcludeFromForecastToggle,
+                        persistExcludeImmediately: false,
+                      })}
                     </td>
                   )}
                   {!showNotes && <td></td>}

@@ -38,7 +38,8 @@ def get_transactions(
             t.prediction_confidence,
             t.model_version,
             uc.notes,
-            COALESCE(uc.validated, false) as validated
+            COALESCE(uc.validated, false) as validated,
+            COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
         FROM analytics.fct_trxns_with_predictions t
         LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
         WHERE (:include_categorized OR COALESCE(uc.master_category, t.master_category) IS NULL)
@@ -70,7 +71,8 @@ def get_transactions(
             prediction_confidence=row.prediction_confidence,
             model_version=row.model_version,
             notes=row.notes,
-            validated=row.validated
+            validated=row.validated,
+            exclude_from_forecast=row.exclude_from_forecast,
         ))
     
     return transactions
@@ -92,7 +94,8 @@ def get_transaction_by_id(db: Session, transaction_id: str) -> Optional[Transact
             t.prediction_confidence,
             t.model_version,
             uc.notes,
-            COALESCE(uc.validated, false) as validated
+            COALESCE(uc.validated, false) as validated,
+            COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
         FROM analytics.fct_trxns_with_predictions t
         LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
         WHERE t.transaction_id = :transaction_id
@@ -117,7 +120,8 @@ def get_transaction_by_id(db: Session, transaction_id: str) -> Optional[Transact
         prediction_confidence=row.prediction_confidence,
         model_version=row.model_version,
         notes=row.notes,
-        validated=row.validated
+        validated=row.validated,
+        exclude_from_forecast=row.exclude_from_forecast,
     )
 
 
@@ -147,6 +151,8 @@ def categorize_transaction(
             user_category.notes = categorize_request.notes
         if categorize_request.validated is not None:
             user_category.validated = categorize_request.validated
+        if categorize_request.exclude_from_forecast is not None:
+            user_category.exclude_from_forecast = categorize_request.exclude_from_forecast
         user_category.updated_at = datetime.utcnow()
     else:
         # Create new
@@ -156,6 +162,11 @@ def categorize_transaction(
             source_category=categorize_request.source_category,
             notes=categorize_request.notes,
             validated=categorize_request.validated if categorize_request.validated is not None else False,
+            exclude_from_forecast=(
+                categorize_request.exclude_from_forecast
+                if categorize_request.exclude_from_forecast is not None
+                else False
+            ),
             updated_at=datetime.utcnow()
         )
         db.add(user_category)
@@ -166,99 +177,13 @@ def categorize_transaction(
 
 
 def get_categories(db: Session) -> List[str]:
-    """Get list of unique master categories from training data, user categories, transactions, and predictions."""
-    categories = set()
-    
-    # First, get ALL categories from training data (fct_trxns_categorized)
-    # This ensures all categories the model was trained on are available
-    # Wrap in try/except in case table doesn't exist yet
+    """Get active category names for assignment dropdowns."""
+    from services.category_service import get_active_category_names
     try:
-        training_categories_query = text("""
-            SELECT DISTINCT master_category 
-            FROM analytics.fct_trxns_categorized 
-            WHERE master_category IS NOT NULL
-        """)
-        training_result = db.execute(training_categories_query)
-        for row in training_result:
-            if row.master_category:
-                categories.add(row.master_category)
-    except Exception as e:
-        # Table might not exist yet, that's okay - continue with other sources
-        pass
-    
-    # Get categories from user_categories table
-    try:
-        user_categories_query = text("""
-            SELECT DISTINCT master_category 
-            FROM public.user_categories 
-            WHERE master_category IS NOT NULL
-        """)
-        user_result = db.execute(user_categories_query)
-        for row in user_result:
-            if row.master_category:
-                categories.add(row.master_category)
-    except Exception as e:
-        # Table might not exist yet, that's okay
-        pass
-    
-    # Get from transactions (source categories)
-    try:
-        transaction_categories_query = text("""
-            SELECT DISTINCT master_category 
-            FROM analytics.fct_trxns_with_predictions 
-            WHERE master_category IS NOT NULL
-        """)
-        trans_result = db.execute(transaction_categories_query)
-        for row in trans_result:
-            if row.master_category:
-                categories.add(row.master_category)
-    except Exception as e:
-        # Table might not exist yet, that's okay
-        pass
-    
-    # Also get predicted categories (so users can see what the model predicts)
-    try:
-        predicted_categories_query = text("""
-            SELECT DISTINCT predicted_master_category 
-            FROM analytics.fct_trxns_with_predictions 
-            WHERE predicted_master_category IS NOT NULL
-        """)
-        predicted_result = db.execute(predicted_categories_query)
-        for row in predicted_result:
-            if row.predicted_master_category:
-                categories.add(row.predicted_master_category)
-    except Exception as e:
-        # Table might not exist yet, that's okay
-        pass
-    
-    # Always include default/common categories as a base set
-    default_categories = {
-        "Dining out",
-        "Donation",
-        "Flight",
-        "Fun!™",
-        "Gas",
-        "Groceries",
-        "Health care",
-        "Home",
-        "Income",
-        "Insurance",
-        "Interest",
-        "Investments",
-        "Miscellaneous",
-        "Professional development",
-        "Rent",
-        "Shopping",
-        "Transfers",
-        "Transportation",
-        "Utilities"
-    }
-    categories.update(default_categories)
-    
-    # Filter out UNCERTAIN - users don't need to assign this category
-    categories.discard('UNCERTAIN')
-    
-    return sorted(list(categories))
+        return get_active_category_names(db)
+    except Exception:
+        from init_db import DEFAULT_CATEGORIES
+        return sorted(DEFAULT_CATEGORIES)
 
 
 def get_transactions_filtered(
@@ -353,7 +278,8 @@ def get_transactions_filtered(
             t.prediction_confidence,
             t.model_version,
             uc.notes,
-            COALESCE(uc.validated, false) as validated
+            COALESCE(uc.validated, false) as validated,
+            COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
         FROM analytics.fct_trxns_with_predictions t
         LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
         WHERE {where_clause}
@@ -378,7 +304,8 @@ def get_transactions_filtered(
             prediction_confidence=row.prediction_confidence,
             model_version=row.model_version,
             notes=row.notes,
-            validated=row.validated
+            validated=row.validated,
+            exclude_from_forecast=row.exclude_from_forecast,
         ))
     
     return {
@@ -435,6 +362,45 @@ def update_notes(db: Session, transaction_id: str, notes: Optional[str]) -> User
     
     user_category.notes = notes
     user_category.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user_category)
+    return user_category
+
+
+def update_exclude_from_forecast(
+    db: Session,
+    transaction_id: str,
+    exclude_from_forecast: bool,
+) -> UserCategory:
+    """Set exclude_from_forecast for a transaction. Creates user_category if needed."""
+    user_category = db.query(UserCategory).filter(
+        UserCategory.transaction_id == transaction_id
+    ).first()
+
+    if not user_category:
+        query = text("""
+            SELECT COALESCE(t.master_category, t.predicted_master_category) as category
+            FROM analytics.fct_trxns_with_predictions t
+            WHERE t.transaction_id = :transaction_id
+        """)
+        result = db.execute(query, {"transaction_id": transaction_id})
+        row = result.first()
+        if not row or not row.category:
+            raise ValueError(
+                f"No category found for transaction {transaction_id}. "
+                "Please assign a category before excluding from forecast."
+            )
+        user_category = UserCategory(
+            transaction_id=transaction_id,
+            master_category=row.category,
+            exclude_from_forecast=exclude_from_forecast,
+            updated_at=datetime.utcnow(),
+        )
+        db.add(user_category)
+    else:
+        user_category.exclude_from_forecast = exclude_from_forecast
+        user_category.updated_at = datetime.utcnow()
+
     db.commit()
     db.refresh(user_category)
     return user_category
@@ -517,6 +483,7 @@ def update_validated_transaction_category(
             source_category=user_category.source_category,
             notes=user_category.notes,
             validated=True,
+            exclude_from_forecast=user_category.exclude_from_forecast,
         ),
     )
 

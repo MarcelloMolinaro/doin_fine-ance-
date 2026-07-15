@@ -8,12 +8,14 @@ from api.validated_transactions import router as validated_transactions_router
 from api.control_center import router as control_center_router
 from api.model_metrics import router as model_metrics_router
 from api.backup import router as backup_router
+from api.categories import router as categories_router
 from db.connection import engine
-from models.transaction import UserCategory
+from models.transaction import UserCategory, Category
 
-# Only create tables we own (user_categories). Do NOT create analytics.fct_trxns_with_predictions:
+# Only create tables we own. Do NOT create analytics.fct_trxns_with_predictions:
 # that name is a dbt VIEW; create_all would add an empty TABLE and hide all uncategorized rows.
 UserCategory.__table__.create(bind=engine, checkfirst=True)
+Category.__table__.create(bind=engine, checkfirst=True)
 
 
 @asynccontextmanager
@@ -48,6 +50,7 @@ app.include_router(validated_transactions_router)
 app.include_router(control_center_router)
 app.include_router(model_metrics_router)
 app.include_router(backup_router)
+app.include_router(categories_router)
 
 
 @app.get("/")

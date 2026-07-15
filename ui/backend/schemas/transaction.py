@@ -20,6 +20,7 @@ class TransactionResponse(BaseModel):
     model_version: Optional[str] = None
     notes: Optional[str] = None
     validated: Optional[bool] = False
+    exclude_from_forecast: Optional[bool] = False
     
     class Config:
         from_attributes = True
@@ -31,6 +32,9 @@ class CategorizeRequest(BaseModel):
     source_category: Optional[str] = Field(None, description="Optional source category")
     notes: Optional[str] = Field(None, description="Optional notes")
     validated: Optional[bool] = Field(False, description="Whether transaction is validated")
+    exclude_from_forecast: Optional[bool] = Field(
+        None, description="Whether to exclude this transaction from forecasting"
+    )
 
 
 class CategorizeResponse(BaseModel):
@@ -40,10 +44,16 @@ class CategorizeResponse(BaseModel):
     source_category: Optional[str] = None
     notes: Optional[str] = None
     validated: bool = False
+    exclude_from_forecast: bool = False
     updated_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class UpdateExcludeFromForecastRequest(BaseModel):
+    """Request schema for updating forecast exclusion."""
+    exclude_from_forecast: bool = Field(..., description="Exclude from forecasting")
 
 
 class BulkCategorizeRequest(BaseModel):

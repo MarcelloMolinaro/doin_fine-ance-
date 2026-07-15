@@ -139,6 +139,29 @@ def init_simplefin_table():
         print("✓ simplefin table initialized successfully")
 
 
+DEFAULT_CATEGORIES = [
+    "Dining out",
+    "Donation",
+    "Flight",
+    "Fun!™",
+    "Gas",
+    "Groceries",
+    "Health care",
+    "Home",
+    "Income",
+    "Insurance",
+    "Interest",
+    "Investments",
+    "Miscellaneous",
+    "Professional development",
+    "Rent",
+    "Shopping",
+    "Transfers",
+    "Transportation",
+    "Utilities",
+]
+
+
 def init_user_categories_table():
     """Create user_categories table if it doesn't exist."""
     with engine.connect() as conn:
@@ -150,6 +173,7 @@ def init_user_categories_table():
                 source_category TEXT,
                 notes TEXT,
                 validated BOOLEAN DEFAULT FALSE,
+                exclude_from_forecast BOOLEAN DEFAULT FALSE,
                 updated_by TEXT DEFAULT 'system',
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -174,6 +198,15 @@ def init_user_categories_table():
             conn.commit()
         except Exception:
             conn.rollback()
+
+        try:
+            conn.execute(text("""
+                ALTER TABLE public.user_categories
+                ADD COLUMN IF NOT EXISTS exclude_from_forecast BOOLEAN DEFAULT FALSE
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
         
         # Create index on master_category for faster queries
         try:
@@ -187,6 +220,46 @@ def init_user_categories_table():
         
         conn.commit()
         print("✓ user_categories table initialized successfully")
+
+
+def init_categories_table():
+    """Create categories catalog and seed default categories."""
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS public.categories (
+                name TEXT PRIMARY KEY,
+                is_default BOOLEAN DEFAULT FALSE,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        conn.commit()
+
+        for name in DEFAULT_CATEGORIES:
+            try:
+                conn.execute(
+                    text("""
+                        INSERT INTO public.categories (name, is_default, is_active)
+                        VALUES (:name, TRUE, TRUE)
+                        ON CONFLICT (name) DO NOTHING
+                    """),
+                    {"name": name},
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        try:
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_categories_is_active
+                ON public.categories(is_active)
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        conn.commit()
+        print("✓ categories table initialized successfully")
 
 
 def init_model_registry_table():
@@ -283,6 +356,7 @@ def init_all_tables():
     init_predicted_transactions_table()
     init_simplefin_table()
     init_user_categories_table()
+    init_categories_table()
     init_model_registry_table()
     print("✓ All database tables initialized successfully")
 
