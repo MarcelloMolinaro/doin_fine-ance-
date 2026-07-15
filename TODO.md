@@ -5,9 +5,9 @@
     - [x] add the remaining account mappings to the seed file
     - [ ] make it so the seeds don't show in git (gitignore wtf?)
 - [ ] Make a readme note on forcing seed mapping - line 24 stg_simplefin.sql model
-- [ ] Ability to mark a transaction as "Exclude from forecasting"
-- [ ] Feature for Adding new categories
-- [ ] Feature that shows all connections and their last refresh date and their last datapoint and ideally their date-range (how far back data will go)
+- [x] Ability to mark a transaction as "Exclude from forecasting"
+- [x] Feature for Adding new categories
+- [x] Feature that shows all connections and their last refresh date and their last datapoint and ideally their date-range (how far back data will go)
 
 
 ### Dagster
