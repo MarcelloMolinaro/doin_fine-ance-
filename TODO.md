@@ -6,13 +6,15 @@
     - [ ] make it so the seeds don't show in git (gitignore wtf?)
 - [ ] Make a readme note on forcing seed mapping - line 24 stg_simplefin.sql model
 - [ ] Ability to mark a transaction as "Exclude from forecasting"
+- [ ] Feature for Adding new categories
+- [ ] Feature that shows all connections and their last refresh date and their last datapoint and ideally their date-range (how far back data will go)
 
 
 ### Dagster
 - [ ] Using Postgres 15, it's a but old (Postgres 17/18 are new)
 
 ## Other
-- [ ] Add ability to add categroies/ surface where the defaults live? transaction_service.py line 235
+- [ ] Add ability to add categories/ surface where the defaults live? transaction_service.py line 235
 - [ ] Remove bloat/tech debt in all of my code
 - [ ] Consider making key referenced VIEW's -> tables - Would requiring adding dbt steps to button triggers
 - [ ] Postgres - Bad = Pulling revelvant file; good = postgres DUMP = pg_dump
