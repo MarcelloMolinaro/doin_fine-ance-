@@ -1,8 +1,3 @@
-# import pandas as pd # might not need
-# import json # might not need
-
-
-# -- New Code --
 from pathlib import Path
 
 from dagster import (
@@ -11,6 +6,8 @@ from dagster import (
     define_asset_job,
     Config,
     RunConfig,
+    asset,
+    AssetExecutionContext,
 )
 
 from dagster_dbt import (
@@ -25,10 +22,7 @@ from extractors.simplefin_api import simplefin_financial_data
 from classifier_train import train_transaction_classifier
 from classifier_predict import predict_transaction_categories
 
-from dagster import asset, AssetExecutionContext
-from sqlalchemy import create_engine
-
-# -- End New Code --
+from common import get_engine
 
 
 @asset
@@ -38,9 +32,7 @@ def load_to_postgres(context: AssetExecutionContext, simplefin_financial_data):
     This asset represents the boundary between Python ingestion
     and warehouse-based transformations (dbt).
     """
-    engine = create_engine(
-        "postgresql+psycopg2://dagster:dagster@postgres:5432/dagster"
-    )
+    engine = get_engine()
 
     simplefin_financial_data.to_sql(
         "simplefin",
@@ -124,7 +116,7 @@ refresh_validated_trxns_job = define_asset_job(
     selection=(
         AssetSelection.keys("fct_validated_trxns").downstream()
     ),
-    description="Runs incremental refresh of validated transactions table, retrains the model, and re-runs predicitions",
+    description="Runs incremental refresh of validated transactions table, retrains the model, and re-runs predictions",
 )
 
 rebuild_historic_data_job = define_asset_job(
@@ -144,7 +136,7 @@ rebuild_historic_data_job = define_asset_job(
             }
         }
     ),
-    description="Runs historic dbt seed refresh, full refreshes validated transacitons - Use when updating your historic seed data",
+    description="Runs historic dbt seed refresh, full refreshes validated transactions - Use when updating your historic seed data",
 )
 
 full_refresh_validated_trxns_job = define_asset_job(

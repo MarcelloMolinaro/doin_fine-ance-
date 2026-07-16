@@ -8,11 +8,12 @@ RUN apt-get update && \
     apt-get install -y git && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Dagster, Dagit, dbt, and ML dependencies
+# Install Dagster, dbt, and ML dependencies
+# (dagit replaced by dagster-webserver, which provides the `dagster-webserver` CLI)
 RUN pip install --no-cache-dir \
     dagster \
+    dagster-webserver \
     dagster-postgres \
-    dagit \
     dagster-dbt \
     pandas \
     SQLAlchemy \
@@ -23,7 +24,8 @@ RUN pip install --no-cache-dir \
     joblib \
     numpy \
     scipy \
-    pyyaml
+    pyyaml \
+    pytest
 # Copy the Dagster project files
 COPY . .
 

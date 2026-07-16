@@ -7,14 +7,12 @@ merchant name, description, amount, and other features.
 
 from dagster import asset, AssetExecutionContext, AssetKey
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.compose import ColumnTransformer
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -25,12 +23,12 @@ from sklearn.metrics import (
 )
 from sklearn.calibration import calibration_curve
 import joblib
-import os
-import yaml
 from datetime import datetime
 import json
 from pathlib import Path
 from scipy.sparse import hstack, csr_matrix
+
+from common import FEATURE_NAMES, MIN_TRAINING_SAMPLES, NUMERICAL_FEATURES, TEXT_FEATURE, get_engine
 
 
 def create_model_storage_path():
@@ -38,36 +36,6 @@ def create_model_storage_path():
     storage_path = Path("/opt/dagster/app/models")
     storage_path.mkdir(exist_ok=True)
     return storage_path
-
-
-def load_config():
-    """Load configuration from config.yaml file."""
-    # Try multiple possible paths for config.yaml
-    possible_paths = [
-        Path("/opt/dagster/config.yaml"),  # Root directory (mounted in docker-compose)
-        Path("/opt/dagster/app/config.yaml"),  # In dagster directory (fallback)
-    ]
-    
-    config_path = None
-    for path in possible_paths:
-        if path.exists():
-            config_path = path
-            break
-    
-    if config_path is None:
-        # Fallback to default values if config doesn't exist
-        return {'model': {'confidence_threshold': 0.40}}
-    
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Ensure model section exists with defaults
-    if 'model' not in config:
-        config['model'] = {}
-    if 'confidence_threshold' not in config['model']:
-        config['model']['confidence_threshold'] = 0.40
-    
-    return config
 
 
 @asset(
@@ -82,7 +50,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
     performs feature engineering, trains a classifier, evaluates it,
     and saves the model artifact.
     """
-    engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
+    engine = get_engine()
     
     # Read validated transactions for training, filters out rows with null amounts
     query_categorized = text("SELECT * FROM analytics.fct_validated_trxns")
@@ -95,22 +63,22 @@ def train_transaction_classifier(context: AssetExecutionContext):
     # This section contains custom filtering logic specific to your data.
     # Modify these filters for your own use case.
     
-    # if len(df_train) > 0:
-    #     df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
+    if len(df_train) > 0:
+        df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
         
-    #     # PERSONALIZED FILTER #1: Filter out transactions before 2022
-    #     df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
+        # PERSONALIZED FILTER #1: Filter out transactions before 2022
+        df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
         
-    #     # PERSONALIZED FILTER #2: Filter Lodging category - only keep if description contains specific keywords
-    #     lodging_mask = (
-    #         df_train['master_category'] == 'Lodging'
-    #     ) & (
-    #         ~df_train['description'].fillna('').str.lower().str.contains(
-    #             'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
-    #         )
-    #     )
+        # PERSONALIZED FILTER #2: Filter Lodging category - only keep if description contains specific keywords
+        lodging_mask = (
+            df_train['master_category'] == 'Lodging'
+        ) & (
+            ~df_train['description'].fillna('').str.lower().str.contains(
+                'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
+            )
+        )
 
-    #     df_train = df_train[~lodging_mask].copy()
+        df_train = df_train[~lodging_mask].copy()
     
     # ============================================================================
     # END PERSONALIZED TRAINING FILTERS
@@ -118,10 +86,10 @@ def train_transaction_classifier(context: AssetExecutionContext):
     
     context.log.info(f"Training transactions: {len(df_train)}")
     
-    # Check if we have enough training data (need at least 50 samples for meaningful training)
-    if len(df_train) < 50:
+    # Check if we have enough training data for meaningful training.
+    if len(df_train) < MIN_TRAINING_SAMPLES:
         context.log.warning(
-            f"Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for model training. "
+            f"Only {len(df_train)} transaction(s) available. Need at least {MIN_TRAINING_SAMPLES} validated transactions for model training. "
             "Skipping model training. Categorize more transactions first."
         )
         
@@ -133,9 +101,9 @@ def train_transaction_classifier(context: AssetExecutionContext):
             'training_date': training_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
             'status': 'skipped',
             'reason': 'insufficient_data',
-            'message': f'Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for training.',
+            'message': f'Only {len(df_train)} transaction(s) available. Need at least {MIN_TRAINING_SAMPLES} validated transactions for training.',
             'n_available': len(df_train),
-            'n_required': 50
+            'n_required': MIN_TRAINING_SAMPLES
         }
         
         try:
@@ -179,7 +147,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
                     'is_active': False,  # Don't activate skipped models
                     'is_latest': True,  # Track skipped runs as latest attempt
                     'reason': 'insufficient_data',
-                    'message': f'Only {len(df_train)} transaction(s) available. Need at least 50 validated transactions for training.'
+                    'message': f'Only {len(df_train)} transaction(s) available. Need at least {MIN_TRAINING_SAMPLES} validated transactions for training.'
                 })
                 conn.commit()
             
@@ -198,15 +166,8 @@ def train_transaction_classifier(context: AssetExecutionContext):
         }
     
     # Prepare features and target
-    X_text = df_train['combined_text'].values
-    X_numerical = df_train[[
-        'amount', 'is_negative', 
-        'day_of_week', 'day_of_month',
-        'amount_bucket',
-        'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
-        'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword',
-        'has_flight_keyword', 'has_credit_fee_keyword', 'has_interest_keyword'
-    ]].values
+    X_text = df_train[TEXT_FEATURE].values
+    X_numerical = df_train[NUMERICAL_FEATURES].values
     y = df_train['master_category'].values
     
     context.log.info(f"Number of categories: {len(np.unique(y))}")
@@ -214,7 +175,6 @@ def train_transaction_classifier(context: AssetExecutionContext):
     
     # Check if we can use stratified splitting
     # Stratified split requires at least one sample per class in both train and test sets
-    unique_categories = np.unique(y)
     category_counts = pd.Series(y).value_counts()
     min_samples_per_class = category_counts.min()
     
@@ -361,13 +321,7 @@ def train_transaction_classifier(context: AssetExecutionContext):
         'numerical_scaler': numerical_scaler,
         'classifier': classifier,
         'model_version': model_version,  # Store version in pipeline
-        'feature_names': [
-            'text_tfidf', 'amount', 'amount_abs', 'is_negative', 
-            'day_of_week', 'month', 'day_of_month', 'amount_bucket',
-            'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
-            'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword',
-            'has_flight_keyword', 'has_credit_fee_keyword', 'has_interest_keyword'
-        ]
+        'feature_names': FEATURE_NAMES,
     }
     
     model_path = model_storage / f"transaction_classifier_{model_version}.pkl"
