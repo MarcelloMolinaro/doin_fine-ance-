@@ -1,12 +1,36 @@
 import os
 import re
-import base64
 import requests
 import pandas as pd
 from dagster import asset
 from datetime import datetime, timedelta
-from urllib.parse import urlparse, urlunparse
-from typing import Optional
+from urllib.parse import urlparse
+
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+
+def _build_retrying_session():
+    """Return a requests Session that retries transient failures with backoff.
+
+    Retries connection errors, read timeouts, HTTP 429 (rate limit), and 5xx
+    responses with exponential backoff (respecting any Retry-After header).
+    Auth/payment errors (402/403) are NOT retried so they surface immediately.
+    """
+    retry = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        status=5,
+        backoff_factor=1.0,  # sleeps ~0s, 1s, 2s, 4s, 8s between attempts
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET"]),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
 
 
 @asset
@@ -28,7 +52,6 @@ def simplefin_financial_data(context):
     
     TODO: Implement date range filtering via query parameters
     TODO: Support multiple access URLs for multiple institutions
-    TODO: Add retry logic with exponential backoff
     TODO: Add data validation and schema enforcement
     TODO: Handle custom currencies (URL-based currency definitions)
     TODO: Add support for pending transactions (pending=1 parameter)
@@ -67,7 +90,7 @@ def simplefin_financial_data(context):
             "https://username:password@bridge.simplefin.org/simplefin"
         )
     
-    auth_part, host_part = parsed.netloc.rsplit('@', 1)
+    auth_part, _ = parsed.netloc.rsplit('@', 1)
     if ':' not in auth_part:
         raise ValueError(
             "SIMPLEFIN_ACCESS_URL must include both username and password: "
@@ -76,7 +99,6 @@ def simplefin_financial_data(context):
     
     username, password = auth_part.split(':', 1)
     
-    # all_accounts_data = []  # Commented out - not needed for now
     all_transactions_data = []
     
     # Capture import timestamp for all transactions
@@ -105,7 +127,10 @@ def simplefin_financial_data(context):
         seen_transaction_ids = set()
         successful_institutions = set()
         failed_institutions = set()
-        
+
+        # Session with automatic retry/backoff for transient network failures.
+        session = _build_retrying_session()
+
         # Make requests in 45-day chunks
         current_start = start_date
         request_num = 0
@@ -123,8 +148,10 @@ def simplefin_financial_data(context):
             }
             
             try:
-                # Make authenticated request with SSL/TLS certificate verification
-                response = requests.get(
+                # Make authenticated request with SSL/TLS certificate verification.
+                # The session retries transient failures (timeouts, 429, 5xx) with
+                # exponential backoff before raising.
+                response = session.get(
                     accounts_url,
                     params=params,
                     auth=(username, password),
@@ -223,7 +250,9 @@ def simplefin_financial_data(context):
             
             # Move to next date range
             current_start = current_end
-        
+
+        session.close()
+
         # Log summary
         context.log.info(f"Completed fetching data. Total transactions collected: {len(all_transactions_data)}")
         if successful_institutions:
@@ -246,47 +275,6 @@ def simplefin_financial_data(context):
     
     return transactions_df
 
-# def claim_simplefin_token(token: str) -> str:
-#     """
-#     Claims a SimpleFIN token and returns an Access URL.
-    
-#     Args:
-#         token: Base64-encoded SimpleFIN token from user
-    
-#     Returns:
-#         Access URL with Basic Auth credentials
-    
-#     TODO: Add this as a helper function or separate asset for token management
-#     TODO: Handle 403 responses (token already claimed or invalid)
-#     """
-#     # Decode the Base64 token to get the claim URL
-#     try:
-#         claim_url = base64.b64decode(token).decode('utf-8')
-#     except Exception as e:
-#         raise ValueError(f"Invalid SimpleFIN token format: {str(e)}")
-    
-#     # Require HTTPS (never HTTP) for security
-#     parsed_claim = urlparse(claim_url)
-#     if parsed_claim.scheme != 'https':
-#         raise ValueError(
-#             "Claim URL must use HTTPS (not HTTP). "
-#             "This is required for secure transmission of financial data."
-#         )
-    
-#     # POST to the claim URL to get the access URL with SSL/TLS certificate verification
-#     response = requests.post(claim_url, timeout=30, verify=True)
-    
-#     if response.status_code == 403:
-#         raise ValueError(
-#             "Token claim failed (403). The token may be invalid, expired, "
-#             "or already claimed. User should generate a new token."
-#         )
-    
-#     response.raise_for_status()
-    
-#     # The response body is the access URL
-#     access_url = response.text.strip()
-#     return access_url
 
 if __name__ == "__main__":
     """

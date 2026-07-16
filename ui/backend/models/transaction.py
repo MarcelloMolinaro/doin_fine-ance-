@@ -1,41 +1,15 @@
-"""SQLAlchemy models for transactions and user categories."""
-from sqlalchemy import Column, String, Numeric, DateTime, Boolean, Text
+"""SQLAlchemy models for user categories and the category catalog.
+
+Read access to transaction data (analytics.fct_trxns_with_predictions) is done
+via raw SQL in the service layer; that name is a dbt VIEW, so it is deliberately
+NOT mapped as an ORM table here (create_all would clobber the view).
+"""
+from sqlalchemy import Column, DateTime, Boolean, Text
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
-from typing import Optional
+
+from utils import utc_now
 
 Base = declarative_base()
-
-
-class Transaction(Base):
-    """Transaction model representing analytics.fct_trxns_with_predictions."""
-    __tablename__ = "fct_trxns_with_predictions"
-    __table_args__ = {"schema": "analytics"}
-    
-    transaction_id = Column(Text, primary_key=True)
-    account_id = Column(Text)
-    original_account_name = Column(Text)
-    account_name = Column(Text)
-    detailed_account_name = Column(Text)
-    owner_name = Column(Text)
-    institution_domain = Column(Text)
-    institution_name = Column(Text)
-    amount = Column(Numeric)
-    posted = Column(DateTime)
-    posted_date = Column(DateTime)
-    transacted_at = Column(DateTime)
-    transacted_date = Column(DateTime)
-    description = Column(Text)
-    pending = Column(Boolean)
-    source_category = Column(Text)
-    master_category = Column(Text)
-    import_timestamp = Column(DateTime)
-    import_date = Column(DateTime)
-    source_name = Column(Text)
-    predicted_master_category = Column(Text)
-    prediction_confidence = Column(Numeric)
-    model_version = Column(Text)
-    prediction_timestamp = Column(DateTime)
 
 
 class UserCategory(Base):
@@ -50,7 +24,7 @@ class UserCategory(Base):
     validated = Column(Boolean, default=False)
     exclude_from_forecast = Column(Boolean, default=False)
     updated_by = Column(Text, default="system")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Category(Base):
@@ -61,4 +35,4 @@ class Category(Base):
     name = Column(Text, primary_key=True)
     is_default = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)

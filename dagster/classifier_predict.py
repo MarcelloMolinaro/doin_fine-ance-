@@ -4,49 +4,22 @@ Barebones transaction classifier prediction asset.
 Uses the trained model to predict categories for uncategorized transactions.
 """
 
-from dagster import asset, AssetExecutionContext
+from dagster import asset, AssetExecutionContext, AssetKey
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 import joblib
-import yaml
 from pathlib import Path
 from scipy.sparse import hstack, csr_matrix
 from datetime import datetime
 
-
-def load_config():
-    """Load configuration from config.yaml file."""
-    # Try multiple possible paths for config.yaml
-    possible_paths = [
-        Path("/opt/dagster/config.yaml"),  # Root directory (mounted in docker-compose)
-        Path("/opt/dagster/app/config.yaml"),  # In dagster directory (fallback)
-    ]
-    
-    config_path = None
-    for path in possible_paths:
-        if path.exists():
-            config_path = path
-            break
-    
-    if config_path is None:
-        # Fallback to default values if config doesn't exist
-        return {'model': {'confidence_threshold': 0.40}}
-    
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Ensure model section exists with defaults
-    if 'model' not in config:
-        config['model'] = {}
-    if 'confidence_threshold' not in config['model']:
-        config['model']['confidence_threshold'] = 0.40
-    
-    return config
+from common import NUMERICAL_FEATURES, TEXT_FEATURE, get_engine, load_config
 
 
 @asset(
-    description="Predict categories for uncategorized transactions using the trained model"
-    
+    description="Predict categories for uncategorized transactions using the trained model",
+    # Depend on the dbt model so predictions never run against a stale
+    # fct_trxns_uncategorized (e.g. before newly-validated rows are excluded).
+    deps=[AssetKey(["fct_trxns_uncategorized"])],
 )
 def predict_transaction_categories(context: AssetExecutionContext, load_to_postgres, train_transaction_classifier):
     """
@@ -55,7 +28,7 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     Loads the latest trained model and predicts categories for transactions
     in fct_trxns_uncategorized.
     """
-    engine = create_engine('postgresql+psycopg2://dagster:dagster@postgres:5432/dagster')
+    engine = get_engine()
     
     # Load latest active model from registry
     with engine.connect() as conn:
@@ -134,15 +107,8 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
         return {"n_predictions": 0}
     
     # Prepare features - fill NaN values
-    X_text = df['combined_text'].fillna('').values
-    X_numerical = df[[
-        'amount', 'is_negative', 
-        'day_of_week', 'day_of_month',
-        'amount_bucket',
-        'has_hotel_keyword', 'has_gas_keyword', 'has_grocery_keyword',
-        'has_restaurant_keyword', 'has_transport_keyword', 'has_shop_keyword',
-        'has_flight_keyword', 'has_credit_fee_keyword', 'has_interest_keyword'
-    ]].fillna(0).values
+    X_text = df[TEXT_FEATURE].fillna('').values
+    X_numerical = df[NUMERICAL_FEATURES].fillna(0).values
     
     # Transform features
     X_text_vec = text_vectorizer.transform(X_text)
@@ -180,15 +146,28 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     df['model_version'] = model_version
     
     
-    # Save predictions to database
-    df.to_sql(
-        'predicted_transactions',
-        engine,
-        schema='analytics',
-        if_exists='append',  # Replace table each time (or use 'replace' to replace history)
-        index=False,
-        method='multi'
-    )
+    # Save predictions to database as an upsert: delete any prior prediction rows
+    # for the transactions we're re-predicting, then insert the fresh ones. This
+    # keeps exactly one row per transaction_id instead of appending forever (the
+    # table previously grew unbounded on every run).
+    prediction_ids = df['transaction_id'].dropna().tolist()
+    with engine.begin() as conn:
+        if prediction_ids:
+            conn.execute(
+                text(
+                    "DELETE FROM analytics.predicted_transactions "
+                    "WHERE transaction_id = ANY(:ids)"
+                ),
+                {"ids": prediction_ids},
+            )
+        df.to_sql(
+            'predicted_transactions',
+            conn,
+            schema='analytics',
+            if_exists='append',
+            index=False,
+            method='multi',
+        )
     
     context.log.info(f"Saved {len(df)} predictions to analytics.predicted_transactions")
     context.log.info(f"Sample predictions:\n{df[['description', 'predicted_master_category', 'prediction_confidence']].head(10)}")

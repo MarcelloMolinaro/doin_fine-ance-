@@ -2,9 +2,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
-from datetime import datetime
+from utils import utc_now
 from models.transaction import Category
-from init_db import DEFAULT_CATEGORIES
+from constants import DEFAULT_CATEGORIES
 
 
 def _in_use_category_names(db: Session) -> set:
@@ -46,7 +46,7 @@ def ensure_default_categories(db: Session) -> None:
     for name in DEFAULT_CATEGORIES:
         existing = db.query(Category).filter(Category.name == name).first()
         if not existing:
-            db.add(Category(name=name, is_default=True, is_active=True, created_at=datetime.utcnow()))
+            db.add(Category(name=name, is_default=True, is_active=True, created_at=utc_now()))
     db.commit()
 
 
@@ -62,7 +62,7 @@ def sync_in_use_categories(db: Session) -> None:
                 name=name,
                 is_default=name in DEFAULT_CATEGORIES,
                 is_active=True,
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
             ))
     db.commit()
 
@@ -129,7 +129,7 @@ def add_category(db: Session, name: str) -> dict:
         name=cleaned,
         is_default=cleaned in DEFAULT_CATEGORIES,
         is_active=True,
-        created_at=datetime.utcnow(),
+        created_at=utc_now(),
     )
     db.add(category)
     db.commit()
@@ -153,7 +153,7 @@ def set_category_active(db: Session, name: str, is_active: bool) -> dict:
                 name=name,
                 is_default=name in DEFAULT_CATEGORIES,
                 is_active=False,
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
             )
             db.add(category)
         else:
