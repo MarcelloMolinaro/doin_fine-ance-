@@ -2,27 +2,20 @@
 
 ## Short Term
 - [ ] Overwrite the source account names in the validated table...
-    - [x] add the remaining account mappings to the seed file
     - [ ] make it so the seeds don't show in git (gitignore wtf?)
-- [ ] Make a readme note on forcing seed mapping - line 24 stg_simplefin.sql model
-- [x] Ability to mark a transaction as "Exclude from forecasting"
-- [x] Feature for Adding new categories
-- [x] Feature that shows all connections and their last refresh date and their last datapoint and ideally their date-range (how far back data will go)
-
+- [ ] README: note "comment out line 25 in stg_simplefin.sql to force seed mapping"
 
 ### Dagster
-- [ ] Using Postgres 15, it's a but old (Postgres 17/18 are new)
+- [ ] Upgrade Postgres 15 → 17/18 (optional)
 
 ## Other
-- [ ] Add ability to add categories/ surface where the defaults live? transaction_service.py line 235
-- [ ] Remove bloat/tech debt in all of my code
-- [ ] Consider making key referenced VIEW's -> tables - Would requiring adding dbt steps to button triggers
+- [ ] dbt hardening: materialize key views if perf/timing becomes an issue
 - [ ] Postgres - Bad = Pulling revelvant file; good = postgres DUMP = pg_dump
-- [ ] Create button at bottom of long pages that sends you to the top? What's the convention here?
+- [ ] Scroll-to-top on long pages (optional UX)
 
 ## Long Term
 - [ ] Consider testing a Chrome MCP for Cursor to check its work?
-- [ ] What's up with the .user.yml file? untrack that?
+- [ ] Untrack dbt/.user.yml `git rm --cached dbt/.user.yml`
 - [ ] Add a flow for "Import CSV" of historic transaction
 - [ ] Improve the filtering you can do on each page, perhaps create an accounts endpoint that allows you to easily filter by account, rather than by typing?
 
