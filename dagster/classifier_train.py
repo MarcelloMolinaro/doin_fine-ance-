@@ -63,22 +63,22 @@ def train_transaction_classifier(context: AssetExecutionContext):
     # This section contains custom filtering logic specific to your data.
     # Modify these filters for your own use case.
     
-    if len(df_train) > 0:
-        df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
+    # if len(df_train) > 0:
+    #     df_train['transacted_date'] = pd.to_datetime(df_train['transacted_date'])
         
-        # PERSONALIZED FILTER #1: Filter out transactions before 2022
-        df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
+    #     # PERSONALIZED FILTER #1: Filter out transactions before 2022
+    #     df_train = df_train[df_train['transacted_date'] >= '2022-01-01'].copy()
         
-        # PERSONALIZED FILTER #2: Filter Lodging category - only keep if description contains specific keywords
-        lodging_mask = (
-            df_train['master_category'] == 'Lodging'
-        ) & (
-            ~df_train['description'].fillna('').str.lower().str.contains(
-                'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
-            )
-        )
+    #     # PERSONALIZED FILTER #2: Filter Lodging category - only keep if description contains specific keywords
+    #     lodging_mask = (
+    #         df_train['master_category'] == 'Lodging'
+    #     ) & (
+    #         ~df_train['description'].fillna('').str.lower().str.contains(
+    #             'airbnb|hipcamp|hotel|booking', case=False, na=False, regex=True
+    #         )
+    #     )
 
-        df_train = df_train[~lodging_mask].copy()
+    #     df_train = df_train[~lodging_mask].copy()
     
     # ============================================================================
     # END PERSONALIZED TRAINING FILTERS
