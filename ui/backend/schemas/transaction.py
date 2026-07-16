@@ -1,6 +1,6 @@
 """Pydantic schemas for API request/response validation."""
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 from decimal import Decimal
 
@@ -54,11 +54,6 @@ class CategorizeResponse(BaseModel):
 class UpdateExcludeFromForecastRequest(BaseModel):
     """Request schema for updating forecast exclusion."""
     exclude_from_forecast: bool = Field(..., description="Exclude from forecasting")
-
-
-class BulkCategorizeRequest(BaseModel):
-    """Request schema for bulk categorization of validated transactions."""
-    master_category: str = Field(..., description="Master category to assign to all validated transactions")
 
 
 class UpdateValidationRequest(BaseModel):

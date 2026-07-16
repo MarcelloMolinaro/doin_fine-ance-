@@ -1,112 +1,42 @@
 """Service layer for transaction business logic."""
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List, Optional, Tuple
-from datetime import datetime
-from models.transaction import Transaction, UserCategory
+from typing import List, Optional
+from utils import utc_now
+from constants import DEFAULT_CATEGORIES
+from models.transaction import UserCategory
 from schemas.transaction import TransactionResponse, CategorizeRequest
 
 
-def get_transactions(
-    db: Session,
-    limit: int = 100,
-    offset: int = 0,
-    include_categorized: bool = True
-) -> List[TransactionResponse]:
-    """
-    Get transactions with user category overrides applied.
-    
-    Args:
-        db: Database session
-        limit: Maximum number of transactions to return
-        offset: Number of transactions to skip
-        include_categorized: Whether to include already categorized transactions
-    """
-    # Build query - predictions are suggestions, not actual categorizations
-    # Only filter by actual categories (user override or source master_category), not predictions
-    query = text("""
-        SELECT 
-            t.transaction_id,
-            t.account_id,
-            t.account_name,
-            t.institution_name,
-            t.amount,
-            t.transacted_date,
-            t.description,
-            COALESCE(uc.master_category, t.master_category) as master_category,
-            t.predicted_master_category,
-            t.prediction_confidence,
-            t.model_version,
-            uc.notes,
-            COALESCE(uc.validated, false) as validated,
-            COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
-        FROM analytics.fct_trxns_with_predictions t
-        LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
-        WHERE (:include_categorized OR COALESCE(uc.master_category, t.master_category) IS NULL)
-        ORDER BY t.transacted_date DESC NULLS LAST
-        LIMIT :limit OFFSET :offset
-    """)
-    
-    result = db.execute(
-        query,
-        {
-            "include_categorized": include_categorized,
-            "limit": limit,
-            "offset": offset
-        }
-    )
-    
-    transactions = []
-    for row in result:
-        transactions.append(TransactionResponse(
-            transaction_id=row.transaction_id,
-            account_id=row.account_id,
-            account_name=row.account_name,
-            institution_name=row.institution_name,
-            amount=row.amount,
-            transacted_date=row.transacted_date,
-            description=row.description,
-            master_category=row.master_category,
-            predicted_master_category=row.predicted_master_category,
-            prediction_confidence=row.prediction_confidence,
-            model_version=row.model_version,
-            notes=row.notes,
-            validated=row.validated,
-            exclude_from_forecast=row.exclude_from_forecast,
-        ))
-    
-    return transactions
+# Shared FROM/JOIN and column list for reading transactions with the user's
+# category overrides applied. Kept in one place so the SELECT can't drift
+# between the by-id, filtered, and count queries.
+_TRANSACTION_FROM = """
+    FROM analytics.fct_trxns_with_predictions t
+    LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
+"""
+
+_TRANSACTION_SELECT = """
+    SELECT
+        t.transaction_id,
+        t.account_id,
+        t.account_name,
+        t.institution_name,
+        t.amount,
+        t.transacted_date,
+        t.description,
+        COALESCE(uc.master_category, t.master_category) as master_category,
+        t.predicted_master_category,
+        t.prediction_confidence,
+        t.model_version,
+        uc.notes,
+        COALESCE(uc.validated, false) as validated,
+        COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
+""" + _TRANSACTION_FROM
 
 
-def get_transaction_by_id(db: Session, transaction_id: str) -> Optional[TransactionResponse]:
-    """Get a single transaction by ID."""
-    query = text("""
-        SELECT 
-            t.transaction_id,
-            t.account_id,
-            t.account_name,
-            t.institution_name,
-            t.amount,
-            t.transacted_date,
-            t.description,
-            COALESCE(uc.master_category, t.master_category) as master_category,
-            t.predicted_master_category,
-            t.prediction_confidence,
-            t.model_version,
-            uc.notes,
-            COALESCE(uc.validated, false) as validated,
-            COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
-        FROM analytics.fct_trxns_with_predictions t
-        LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
-        WHERE t.transaction_id = :transaction_id
-    """)
-    
-    result = db.execute(query, {"transaction_id": transaction_id})
-    row = result.first()
-    
-    if not row:
-        return None
-    
+def _row_to_transaction_response(row) -> TransactionResponse:
+    """Map a result row from the transaction SELECT to a response model."""
     return TransactionResponse(
         transaction_id=row.transaction_id,
         account_id=row.account_id,
@@ -123,6 +53,26 @@ def get_transaction_by_id(db: Session, transaction_id: str) -> Optional[Transact
         validated=row.validated,
         exclude_from_forecast=row.exclude_from_forecast,
     )
+
+
+def _fetch_existing_category(db: Session, transaction_id: str) -> Optional[str]:
+    """Return the transaction's current category (user override or predicted)."""
+    query = text("""
+        SELECT COALESCE(t.master_category, t.predicted_master_category) as category
+        FROM analytics.fct_trxns_with_predictions t
+        WHERE t.transaction_id = :transaction_id
+    """)
+    row = db.execute(query, {"transaction_id": transaction_id}).first()
+    return row.category if row else None
+
+
+def get_transaction_by_id(db: Session, transaction_id: str) -> Optional[TransactionResponse]:
+    """Get a single transaction by ID."""
+    query = text(_TRANSACTION_SELECT + " WHERE t.transaction_id = :transaction_id")
+    row = db.execute(query, {"transaction_id": transaction_id}).first()
+    if not row:
+        return None
+    return _row_to_transaction_response(row)
 
 
 def categorize_transaction(
@@ -153,7 +103,7 @@ def categorize_transaction(
             user_category.validated = categorize_request.validated
         if categorize_request.exclude_from_forecast is not None:
             user_category.exclude_from_forecast = categorize_request.exclude_from_forecast
-        user_category.updated_at = datetime.utcnow()
+        user_category.updated_at = utc_now()
     else:
         # Create new
         user_category = UserCategory(
@@ -167,7 +117,7 @@ def categorize_transaction(
                 if categorize_request.exclude_from_forecast is not None
                 else False
             ),
-            updated_at=datetime.utcnow()
+            updated_at=utc_now()
         )
         db.add(user_category)
     
@@ -182,7 +132,6 @@ def get_categories(db: Session) -> List[str]:
     try:
         return get_active_category_names(db)
     except Exception:
-        from init_db import DEFAULT_CATEGORIES
         return sorted(DEFAULT_CATEGORIES)
 
 
@@ -253,60 +202,17 @@ def get_transactions_filtered(
     order_clause = f"{order_column} {order_direction} NULLS LAST"
     
     # First, get total count for pagination
-    count_query = text(f"""
-        SELECT COUNT(*) as total
-        FROM analytics.fct_trxns_with_predictions t
-        LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
-        WHERE {where_clause}
-    """)
+    count_query = text(f"SELECT COUNT(*) as total {_TRANSACTION_FROM} WHERE {where_clause}")
     count_params = {k: v for k, v in params.items() if k != 'limit' and k != 'offset'}
-    count_result = db.execute(count_query, count_params)
-    total_count = count_result.scalar() or 0
+    total_count = db.execute(count_query, count_params).scalar() or 0
     
     # Then get the paginated results
-    query = text(f"""
-        SELECT 
-            t.transaction_id,
-            t.account_id,
-            t.account_name,
-            t.institution_name,
-            t.amount,
-            t.transacted_date,
-            t.description,
-            COALESCE(uc.master_category, t.master_category) as master_category,
-            t.predicted_master_category,
-            t.prediction_confidence,
-            t.model_version,
-            uc.notes,
-            COALESCE(uc.validated, false) as validated,
-            COALESCE(uc.exclude_from_forecast, false) as exclude_from_forecast
-        FROM analytics.fct_trxns_with_predictions t
-        LEFT JOIN public.user_categories uc ON t.transaction_id = uc.transaction_id
-        WHERE {where_clause}
-        ORDER BY {order_clause}
-        LIMIT :limit OFFSET :offset
-    """)
-    
+    query = text(
+        _TRANSACTION_SELECT
+        + f" WHERE {where_clause} ORDER BY {order_clause} LIMIT :limit OFFSET :offset"
+    )
     result = db.execute(query, params)
-    
-    transactions = []
-    for row in result:
-        transactions.append(TransactionResponse(
-            transaction_id=row.transaction_id,
-            account_id=row.account_id,
-            account_name=row.account_name,
-            institution_name=row.institution_name,
-            amount=row.amount,
-            transacted_date=row.transacted_date,
-            description=row.description,
-            master_category=row.master_category,
-            predicted_master_category=row.predicted_master_category,
-            prediction_confidence=row.prediction_confidence,
-            model_version=row.model_version,
-            notes=row.notes,
-            validated=row.validated,
-            exclude_from_forecast=row.exclude_from_forecast,
-        ))
+    transactions = [_row_to_transaction_response(row) for row in result]
     
     return {
         "transactions": transactions,
@@ -322,29 +228,21 @@ def update_validation(db: Session, transaction_id: str, validated: bool) -> User
     
     if not user_category:
         # Get the predicted or existing category to create the entry
-        query = text("""
-            SELECT 
-                COALESCE(t.master_category, t.predicted_master_category) as category
-            FROM analytics.fct_trxns_with_predictions t
-            WHERE t.transaction_id = :transaction_id
-        """)
-        result = db.execute(query, {"transaction_id": transaction_id})
-        row = result.first()
-        
-        if not row or not row.category:
+        category = _fetch_existing_category(db, transaction_id)
+        if not category:
             raise ValueError(f"No category found for transaction {transaction_id}. Please assign a category first.")
         
         # Create new user_category entry
         user_category = UserCategory(
             transaction_id=transaction_id,
-            master_category=row.category,
+            master_category=category,
             validated=validated,
-            updated_at=datetime.utcnow()
+            updated_at=utc_now()
         )
         db.add(user_category)
     else:
         user_category.validated = validated
-        user_category.updated_at = datetime.utcnow()
+        user_category.updated_at = utc_now()
     
     db.commit()
     db.refresh(user_category)
@@ -361,7 +259,7 @@ def update_notes(db: Session, transaction_id: str, notes: Optional[str]) -> User
         raise ValueError(f"No user category found for transaction {transaction_id}")
     
     user_category.notes = notes
-    user_category.updated_at = datetime.utcnow()
+    user_category.updated_at = utc_now()
     db.commit()
     db.refresh(user_category)
     return user_category
@@ -378,28 +276,22 @@ def update_exclude_from_forecast(
     ).first()
 
     if not user_category:
-        query = text("""
-            SELECT COALESCE(t.master_category, t.predicted_master_category) as category
-            FROM analytics.fct_trxns_with_predictions t
-            WHERE t.transaction_id = :transaction_id
-        """)
-        result = db.execute(query, {"transaction_id": transaction_id})
-        row = result.first()
-        if not row or not row.category:
+        category = _fetch_existing_category(db, transaction_id)
+        if not category:
             raise ValueError(
                 f"No category found for transaction {transaction_id}. "
                 "Please assign a category before excluding from forecast."
             )
         user_category = UserCategory(
             transaction_id=transaction_id,
-            master_category=row.category,
+            master_category=category,
             exclude_from_forecast=exclude_from_forecast,
-            updated_at=datetime.utcnow(),
+            updated_at=utc_now(),
         )
         db.add(user_category)
     else:
         user_category.exclude_from_forecast = exclude_from_forecast
-        user_category.updated_at = datetime.utcnow()
+        user_category.updated_at = utc_now()
 
     db.commit()
     db.refresh(user_category)
@@ -427,22 +319,14 @@ def bulk_validate_transactions(db: Session, transaction_ids: List[str]) -> int:
         
         if not user_category:
             # Get the predicted or existing category to create the entry
-            query = text("""
-                SELECT 
-                    COALESCE(t.master_category, t.predicted_master_category) as category
-                FROM analytics.fct_trxns_with_predictions t
-                WHERE t.transaction_id = :transaction_id
-            """)
-            result = db.execute(query, {"transaction_id": transaction_id})
-            row = result.first()
-            
-            if row and row.category:
+            category = _fetch_existing_category(db, transaction_id)
+            if category:
                 # Create new user_category entry with validated=True
                 user_category = UserCategory(
                     transaction_id=transaction_id,
-                    master_category=row.category,
+                    master_category=category,
                     validated=True,
-                    updated_at=datetime.utcnow()
+                    updated_at=utc_now()
                 )
                 db.add(user_category)
                 updated_count += 1
@@ -450,7 +334,7 @@ def bulk_validate_transactions(db: Session, transaction_ids: List[str]) -> int:
             # Update existing entry
             if not user_category.validated:
                 user_category.validated = True
-                user_category.updated_at = datetime.utcnow()
+                user_category.updated_at = utc_now()
                 updated_count += 1
     
     db.commit()
@@ -491,35 +375,3 @@ def update_validated_transaction_category(
     schedule_editor_category_fix_pipeline()
 
     return result
-
-
-def bulk_categorize_validated(db: Session, master_category: str) -> Tuple[int, int]:
-    """
-    Apply a category to all validated transactions that don't already have that category.
-    
-    Returns:
-        Tuple of (updated_count, total_validated_count)
-    """
-    # Get all validated transaction IDs
-    validated_query = text("""
-        SELECT transaction_id, master_category
-        FROM public.user_categories
-        WHERE validated = true
-    """)
-    
-    result = db.execute(validated_query)
-    validated_transactions = {row.transaction_id: row.master_category for row in result}
-    
-    updated_count = 0
-    for transaction_id, current_category in validated_transactions.items():
-        if current_category != master_category:
-            user_category = db.query(UserCategory).filter(
-                UserCategory.transaction_id == transaction_id
-            ).first()
-            if user_category:
-                user_category.master_category = master_category
-                user_category.updated_at = datetime.utcnow()
-                updated_count += 1
-    
-    db.commit()
-    return updated_count, len(validated_transactions)

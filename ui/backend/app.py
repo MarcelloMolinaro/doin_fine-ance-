@@ -1,8 +1,10 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from services.backup_service import BackupError
 from api.transactions import router as transactions_router
 from api.validated_transactions import router as validated_transactions_router
 from api.control_center import router as control_center_router
@@ -43,6 +45,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(BackupError)
+async def backup_error_handler(request: Request, exc: BackupError):
+    """Surface backup/restore subprocess failures as HTTP 500 with a message."""
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
 
 # Include routers
 app.include_router(transactions_router)

@@ -3,13 +3,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import httpx
-import os
 import logging
 from sqlalchemy import text
 from db.connection import engine
+from constants import DAGSTER_URL, JOB_INGEST_AND_PREDICT, JOB_INITIALIZATION
+from services.dagster_client import DagsterClientError, launch_job
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/api/control-center", tags=["control-center"])
 
@@ -161,163 +161,22 @@ def list_connections():
 @router.post("/trigger-ingest-and-predict", response_model=TriggerJobResponse)
 def trigger_ingest_and_predict_job():
     """Trigger Dagster job to ingest data and predict categories."""
-    dagster_url = os.getenv("DAGSTER_URL", "http://dagster:3000")
-    graphql_url = f"{dagster_url}/graphql"
-    
-    logger.info(f"Attempting to trigger 2_ingest_and_predict job at {graphql_url}")
-    
-    # GraphQL mutation to launch the job
-    mutation_launch_run = """
-    mutation LaunchRun(
-      $repositoryLocationName: String!
-      $repositoryName: String!
-      $jobName: String!
-    ) {
-      launchRun(
-        executionParams: {
-          selector: {
-            repositoryLocationName: $repositoryLocationName
-            repositoryName: $repositoryName
-            jobName: $jobName
-          }
-        }
-      ) {
-        __typename
-        ... on LaunchRunSuccess {
-          run {
-            runId
-            status
-          }
-        }
-        ... on PythonError {
-          message
-          stack
-        }
-        ... on PipelineNotFoundError {
-          message
-        }
-        ... on RunConfigValidationInvalid {
-          errors {
-            message
-            reason
-          }
-        }
-      }
-    }
-    """
-    
-    variables = {
-        "jobName": "2_ingest_and_predict",
-        "repositoryLocationName": "repo.py",
-        "repositoryName": "__repository__"
-    }
-    
     try:
-        with httpx.Client(timeout=30.0) as client:
-            logger.info(f"Launching Dagster job with variables: {variables}")
-            response = client.post(
-                graphql_url,
-                json={"query": mutation_launch_run, "variables": variables},
-                headers={"Content-Type": "application/json"}
-            )
-            
-            logger.info(f"Dagster response status: {response.status_code}")
-            
-            if response.status_code >= 400:
-                result = response.json()
-                logger.error(f"Dagster error response: {result}")
-                if "errors" in result:
-                    error_msg = result["errors"][0].get("message", "Unknown error")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Dagster GraphQL error: {error_msg}"
-                    )
-                response.raise_for_status()
-            
-            result = response.json()
-            logger.info(f"Dagster response: {result}")
-            
-            if "errors" in result:
-                error_details = result["errors"]
-                error_msg = error_details[0].get("message", "Unknown error") if error_details else "Unknown GraphQL error"
-                logger.error(f"GraphQL errors: {error_details}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Dagster GraphQL error: {error_msg}"
-                )
-            
-            launch_result = result.get("data", {}).get("launchRun", {})
-            
-            if launch_result.get("__typename") == "LaunchRunSuccess":
-                run_info = launch_result.get("run", {})
-                run_id = run_info.get("runId") or run_info.get("id")
-                logger.info(f"Successfully launched run: {run_id}")
-                return TriggerJobResponse(
-                    success=True,
-                    message="Dagster job triggered successfully",
-                    run_id=run_id,
-                    status=run_info.get("status")
-                )
-            elif launch_result.get("__typename") == "PythonError":
-                error_msg = launch_result.get("message", "Unknown error")
-                logger.error(f"Python error from Dagster: {error_msg}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Dagster error: {error_msg}"
-                )
-            elif launch_result.get("__typename") == "PipelineNotFoundError":
-                error_msg = launch_result.get("message", "Job not found")
-                logger.error(f"PipelineNotFoundError from Dagster: {error_msg}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Job '2_ingest_and_predict' not found in Dagster. Make sure the job is registered."
-                )
-            elif launch_result.get("__typename") == "RunConfigValidationInvalid":
-                errors = launch_result.get("errors", [])
-                error_msg = errors[0].get("message", "Invalid run config") if errors else "Invalid run config"
-                logger.error(f"Run config validation error: {error_msg}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Dagster run config validation failed: {error_msg}"
-                )
-            else:
-                logger.error(f"Unexpected response type: {launch_result.get('__typename')}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Unexpected response from Dagster: {launch_result.get('__typename')}"
-                )
-                
-    except httpx.RequestError as e:
-        logger.error(f"Request error connecting to Dagster: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to connect to Dagster at {graphql_url}: {str(e)}"
+        run_id = launch_job(JOB_INGEST_AND_PREDICT)
+        return TriggerJobResponse(
+            success=True,
+            message="Dagster job triggered successfully",
+            run_id=run_id,
         )
-    except httpx.HTTPStatusError as e:
-        error_text = e.response.text if hasattr(e.response, 'text') else str(e)
-        logger.error(f"HTTP error from Dagster: {e.response.status_code} - {error_text}", exc_info=True)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Dagster returned HTTP {e.response.status_code}: {error_text}"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        error_msg = str(e) if str(e) else f"Exception type: {type(e).__name__}"
-        logger.error(f"Unexpected error: {error_msg}\n{error_trace}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error triggering Dagster job: {error_msg}"
-        )
+    except DagsterClientError as e:
+        logger.error("Failed to trigger %s: %s", JOB_INGEST_AND_PREDICT, e.message)
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
 @router.get("/simplefin-warnings", response_model=WarningsResponse)
 def get_simplefin_warnings(limit: int = 50):
     """Fetch all WARNING level logs from recent simplefin_financial_data asset runs."""
-    dagster_url = os.getenv("DAGSTER_URL", "http://dagster:3000")
-    graphql_url = f"{dagster_url}/graphql"
+    graphql_url = f"{DAGSTER_URL}/graphql"
     
     try:
         with httpx.Client(timeout=30.0) as client:
@@ -534,154 +393,15 @@ def get_initialization_status():
 @router.post("/trigger-initialization", response_model=TriggerJobResponse)
 def trigger_initialization():
     """Trigger Dagster initialization job (1_dagster_init)."""
-    dagster_url = os.getenv("DAGSTER_URL", "http://dagster:3000")
-    graphql_url = f"{dagster_url}/graphql"
-    
-    logger.info(f"Attempting to trigger 1_dagster_init job at {graphql_url}")
-    
-    # GraphQL mutation to launch the job
-    mutation_launch_run = """
-    mutation LaunchRun(
-      $repositoryLocationName: String!
-      $repositoryName: String!
-      $jobName: String!
-    ) {
-      launchRun(
-        executionParams: {
-          selector: {
-            repositoryLocationName: $repositoryLocationName
-            repositoryName: $repositoryName
-            jobName: $jobName
-          }
-        }
-      ) {
-        __typename
-        ... on LaunchRunSuccess {
-          run {
-            runId
-            status
-          }
-        }
-        ... on PythonError {
-          message
-          stack
-        }
-        ... on PipelineNotFoundError {
-          message
-        }
-        ... on RunConfigValidationInvalid {
-          errors {
-            message
-            reason
-          }
-        }
-      }
-    }
-    """
-    
-    variables = {
-        "jobName": "1_dagster_init",
-        "repositoryLocationName": "repo.py",
-        "repositoryName": "__repository__"
-    }
-    
     try:
-        with httpx.Client(timeout=300.0) as client:  # Longer timeout for initialization
-            logger.info(f"Launching Dagster initialization job with variables: {variables}")
-            response = client.post(
-                graphql_url,
-                json={"query": mutation_launch_run, "variables": variables},
-                headers={"Content-Type": "application/json"}
-            )
-            
-            logger.info(f"Dagster response status: {response.status_code}")
-            
-            if response.status_code >= 400:
-                result = response.json()
-                logger.error(f"Dagster error response: {result}")
-                if "errors" in result:
-                    error_msg = result["errors"][0].get("message", "Unknown error")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Dagster GraphQL error: {error_msg}"
-                    )
-                response.raise_for_status()
-            
-            result = response.json()
-            logger.info(f"Dagster response: {result}")
-            
-            if "errors" in result:
-                error_details = result["errors"]
-                error_msg = error_details[0].get("message", "Unknown error") if error_details else "Unknown GraphQL error"
-                logger.error(f"GraphQL errors: {error_details}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Dagster GraphQL error: {error_msg}"
-                )
-            
-            launch_result = result.get("data", {}).get("launchRun", {})
-            
-            if launch_result.get("__typename") == "LaunchRunSuccess":
-                run_info = launch_result.get("run", {})
-                run_id = run_info.get("runId") or run_info.get("id")
-                logger.info(f"Successfully launched initialization run: {run_id}")
-                return TriggerJobResponse(
-                    success=True,
-                    message="Initialization job triggered successfully. This may take several minutes.",
-                    run_id=run_id,
-                    status=run_info.get("status")
-                )
-            elif launch_result.get("__typename") == "PythonError":
-                error_msg = launch_result.get("message", "Unknown error")
-                logger.error(f"Python error from Dagster: {error_msg}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Dagster error: {error_msg}"
-                )
-            elif launch_result.get("__typename") == "PipelineNotFoundError":
-                error_msg = launch_result.get("message", "Job not found")
-                logger.error(f"PipelineNotFoundError from Dagster: {error_msg}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Initialization job '1_dagster_init' not found in Dagster. Make sure the job is registered."
-                )
-            elif launch_result.get("__typename") == "RunConfigValidationInvalid":
-                errors = launch_result.get("errors", [])
-                error_msg = errors[0].get("message", "Invalid run config") if errors else "Invalid run config"
-                logger.error(f"Run config validation error: {error_msg}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Dagster run config validation failed: {error_msg}"
-                )
-            else:
-                logger.error(f"Unexpected response type: {launch_result.get('__typename')}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Unexpected response from Dagster: {launch_result.get('__typename')}"
-                )
-                
-    except httpx.RequestError as e:
-        logger.error(f"Request error connecting to Dagster: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to connect to Dagster at {graphql_url}: {str(e)}"
+        # Longer timeout: initialization can take several minutes to launch.
+        run_id = launch_job(JOB_INITIALIZATION, timeout=300.0)
+        return TriggerJobResponse(
+            success=True,
+            message="Initialization job triggered successfully. This may take several minutes.",
+            run_id=run_id,
         )
-    except httpx.HTTPStatusError as e:
-        error_text = e.response.text if hasattr(e.response, 'text') else str(e)
-        logger.error(f"HTTP error from Dagster: {e.response.status_code} - {error_text}", exc_info=True)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Dagster returned HTTP {e.response.status_code}: {error_text}"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        error_msg = str(e) if str(e) else f"Exception type: {type(e).__name__}"
-        logger.error(f"Unexpected error: {error_msg}\n{error_trace}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error triggering initialization job: {error_msg}"
-        )
+    except DagsterClientError as e:
+        logger.error("Failed to trigger %s: %s", JOB_INITIALIZATION, e.message)
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 

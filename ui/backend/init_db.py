@@ -1,6 +1,23 @@
 """Initialize database tables and schemas."""
 from sqlalchemy import text
 from db.connection import engine
+from constants import DEFAULT_CATEGORIES
+
+
+def _run_ddl(conn, sql, params=None):
+    """Execute an idempotent DDL/migration statement, isolating failures.
+
+    Index creation and ALTER ... IF NOT EXISTS migrations are best-effort: they
+    may already be applied or race with another process. Each runs in its own
+    commit so one failure can't roll back the others; on error we roll back and
+    move on (the same behavior the hand-rolled try/except blocks had).
+    """
+    try:
+        conn.execute(text(sql), params or {})
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
 
 def init_analytics_schema():
     """Create analytics schema if it doesn't exist."""
@@ -56,28 +73,18 @@ def init_predicted_transactions_table():
                 prediction_timestamp TIMESTAMP
             )
         """))
-        
-        # Create index on transaction_id for faster lookups
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_predicted_transactions_transaction_id 
-                ON analytics.predicted_transactions(transaction_id)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Create index on prediction_timestamp for time-based queries
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_predicted_transactions_timestamp 
-                ON analytics.predicted_transactions(prediction_timestamp DESC)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
         conn.commit()
+
+        # Index on transaction_id for faster lookups
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_predicted_transactions_transaction_id
+            ON analytics.predicted_transactions(transaction_id)
+        """)
+        # Index on prediction_timestamp for time-based queries
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_predicted_transactions_timestamp
+            ON analytics.predicted_transactions(prediction_timestamp DESC)
+        """)
         print("✓ predicted_transactions table initialized successfully")
 
 
@@ -104,62 +111,24 @@ def init_simplefin_table():
                 extra TEXT
             )
         """))
-        
-        # Create index on transaction_id for faster lookups and deduplication
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_simplefin_transaction_id 
-                ON public.simplefin(transaction_id)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Create index on transacted_date for time-based queries
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_simplefin_transacted_date 
-                ON public.simplefin(transacted_date)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Create index on account_id for account-based queries
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_simplefin_account_id 
-                ON public.simplefin(account_id)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
         conn.commit()
+
+        # Index on transaction_id for faster lookups and deduplication
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_simplefin_transaction_id
+            ON public.simplefin(transaction_id)
+        """)
+        # Index on transacted_date for time-based queries
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_simplefin_transacted_date
+            ON public.simplefin(transacted_date)
+        """)
+        # Index on account_id for account-based queries
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_simplefin_account_id
+            ON public.simplefin(account_id)
+        """)
         print("✓ simplefin table initialized successfully")
-
-
-DEFAULT_CATEGORIES = [
-    "Dining out",
-    "Donation",
-    "Flight",
-    "Fun!™",
-    "Gas",
-    "Groceries",
-    "Health care",
-    "Home",
-    "Income",
-    "Insurance",
-    "Interest",
-    "Investments",
-    "Miscellaneous",
-    "Professional development",
-    "Rent",
-    "Shopping",
-    "Transfers",
-    "Transportation",
-    "Utilities",
-]
 
 
 def init_user_categories_table():
@@ -178,47 +147,17 @@ def init_user_categories_table():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
-        
-        # Add new columns if table already exists (migration)
-        # Note: DDL statements auto-commit in SQLAlchemy, but we execute them anyway
-        try:
-            conn.execute(text("""
-                ALTER TABLE public.user_categories 
-                ADD COLUMN IF NOT EXISTS notes TEXT
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        try:
-            conn.execute(text("""
-                ALTER TABLE public.user_categories 
-                ADD COLUMN IF NOT EXISTS validated BOOLEAN DEFAULT FALSE
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-
-        try:
-            conn.execute(text("""
-                ALTER TABLE public.user_categories
-                ADD COLUMN IF NOT EXISTS exclude_from_forecast BOOLEAN DEFAULT FALSE
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Create index on master_category for faster queries
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_user_categories_master_category 
-                ON public.user_categories(master_category)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
         conn.commit()
+
+        # Add new columns if table already exists (migration)
+        _run_ddl(conn, "ALTER TABLE public.user_categories ADD COLUMN IF NOT EXISTS notes TEXT")
+        _run_ddl(conn, "ALTER TABLE public.user_categories ADD COLUMN IF NOT EXISTS validated BOOLEAN DEFAULT FALSE")
+        _run_ddl(conn, "ALTER TABLE public.user_categories ADD COLUMN IF NOT EXISTS exclude_from_forecast BOOLEAN DEFAULT FALSE")
+        # Index on master_category for faster queries
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_user_categories_master_category
+            ON public.user_categories(master_category)
+        """)
         print("✓ user_categories table initialized successfully")
 
 
@@ -236,29 +175,20 @@ def init_categories_table():
         conn.commit()
 
         for name in DEFAULT_CATEGORIES:
-            try:
-                conn.execute(
-                    text("""
-                        INSERT INTO public.categories (name, is_default, is_active)
-                        VALUES (:name, TRUE, TRUE)
-                        ON CONFLICT (name) DO NOTHING
-                    """),
-                    {"name": name},
-                )
-                conn.commit()
-            except Exception:
-                conn.rollback()
+            _run_ddl(
+                conn,
+                """
+                INSERT INTO public.categories (name, is_default, is_active)
+                VALUES (:name, TRUE, TRUE)
+                ON CONFLICT (name) DO NOTHING
+                """,
+                {"name": name},
+            )
 
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_categories_is_active
-                ON public.categories(is_active)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-
-        conn.commit()
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_categories_is_active
+            ON public.categories(is_active)
+        """)
         print("✓ categories table initialized successfully")
 
 
@@ -292,61 +222,32 @@ def init_model_registry_table():
                 message TEXT
             )
         """))
-        
-        # Create index on training_timestamp for time-based queries
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_model_registry_training_timestamp 
-                ON analytics.model_registry(training_timestamp DESC)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Create index on is_active for finding active model
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_model_registry_is_active 
-                ON analytics.model_registry(is_active) 
-                WHERE is_active = TRUE
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Create index on is_latest for finding latest model
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_model_registry_is_latest 
-                ON analytics.model_registry(is_latest) 
-                WHERE is_latest = TRUE
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Create GIN index on metrics JSONB for efficient JSON queries
-        try:
-            conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_model_registry_metrics_gin 
-                ON analytics.model_registry USING GIN (metrics)
-            """))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-        
-        # Migration: If table exists with NOT NULL file_path, alter it to allow NULL
-        try:
-            conn.execute(text("""
-                ALTER TABLE analytics.model_registry 
-                ALTER COLUMN file_path DROP NOT NULL
-            """))
-            conn.commit()
-        except Exception:
-            # Column might already be nullable, or table might not exist yet (will be created with NULL allowed)
-            conn.rollback()
-        
         conn.commit()
+
+        # Index on training_timestamp for time-based queries
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_model_registry_training_timestamp
+            ON analytics.model_registry(training_timestamp DESC)
+        """)
+        # Index on is_active for finding active model
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_model_registry_is_active
+            ON analytics.model_registry(is_active)
+            WHERE is_active = TRUE
+        """)
+        # Index on is_latest for finding latest model
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_model_registry_is_latest
+            ON analytics.model_registry(is_latest)
+            WHERE is_latest = TRUE
+        """)
+        # GIN index on metrics JSONB for efficient JSON queries
+        _run_ddl(conn, """
+            CREATE INDEX IF NOT EXISTS idx_model_registry_metrics_gin
+            ON analytics.model_registry USING GIN (metrics)
+        """)
+        # Migration: if table pre-existed with NOT NULL file_path, relax it
+        _run_ddl(conn, "ALTER TABLE analytics.model_registry ALTER COLUMN file_path DROP NOT NULL")
         print("✓ model_registry table initialized successfully")
 
 
@@ -359,6 +260,7 @@ def init_all_tables():
     init_categories_table()
     init_model_registry_table()
     print("✓ All database tables initialized successfully")
+
 
 if __name__ == "__main__":
     init_all_tables()

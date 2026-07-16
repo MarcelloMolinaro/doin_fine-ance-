@@ -1,11 +1,13 @@
 """API routes for transaction management."""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from constants import DEFAULT_CATEGORIES, LOW_CONFIDENCE_THRESHOLD
 from db.connection import get_db
 from services.transaction_service import (
-    get_transactions,
     get_transaction_by_id,
     categorize_transaction,
     get_categories,
@@ -16,13 +18,14 @@ from services.transaction_service import (
     bulk_validate_transactions
 )
 from schemas.transaction import (
-    TransactionResponse, 
     CategorizeRequest, 
     CategorizeResponse,
     UpdateValidationRequest,
     UpdateNotesRequest,
     UpdateExcludeFromForecastRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class BulkValidateRequest(BaseModel):
@@ -39,7 +42,7 @@ def list_transactions(
     view_mode: Optional[str] = Query(None, description="View mode: 'unvalidated_predicted', 'unvalidated_unpredicted', or 'validated'"),
     description_search: Optional[str] = Query(None, description="Search filter for description field"),
     exclude_low_confidence: bool = Query(False, description="Hide predictions below low confidence threshold"),
-    low_confidence_threshold: float = Query(0.35, ge=0.0, le=1.0),
+    low_confidence_threshold: float = Query(LOW_CONFIDENCE_THRESHOLD, ge=0.0, le=1.0),
     sort_by: Optional[str] = Query(None, description="Sort column: transacted_date or prediction_confidence"),
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
     db: Session = Depends(get_db)
@@ -91,16 +94,9 @@ def list_categories(db: Session = Depends(get_db)):
     try:
         return get_categories(db)
     except Exception as e:
-        # Log error and return fallback categories
-        import logging
-        logger = logging.getLogger(__name__)
+        # Return the default catalog so the UI doesn't break if the DB read fails.
         logger.error(f"Error fetching categories: {str(e)}")
-        # Return fallback categories so UI doesn't break
-        return sorted([
-            "Dining out", "Groceries", "Income", "Bars & Restaurants",
-            "Auto & Transport", "Bills & Utilities", "Rent", "Entertainment",
-            "Shopping", "Travel", "Gas & Fuel", "Coffee Shops", "Restaurants"
-        ])
+        return sorted(DEFAULT_CATEGORIES)
 
 
 @router.put("/{transaction_id}/validate")
