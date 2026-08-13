@@ -242,6 +242,31 @@ You do **not** need to re-run Initialize or Ingest after a full restore.
 
 **Without a backup:** You can only recover ~60–145 days from SimpleFIN plus any historic seed CSV — and you lose all manual validations. Always export a bundle before migrating.
 
+### Local personalizations (git skip-worktree)
+
+Some files are intentionally **personal** (not committed to GitHub). Git can hide local edits so `git status` stays clean:
+
+| File | skip-worktree? | Why |
+|------|----------------|-----|
+| `dagster/classifier_train.py` | recommended | Uncommented training filters are local-only |
+| `jupyter/notebooks/01_m_and_a_charts.ipynb` | yes | Personal analysis |
+| `jupyter/notebooks/02_net_change_by_month.ipynb` | yes | Personal analysis |
+| `jupyter/notebooks/00_getting_started.ipynb` | no | Shared starter notebook |
+
+Set once on a machine (already applied for 01 & 02 on the primary dev machine):
+
+```bash
+git update-index --skip-worktree dagster/classifier_train.py
+git update-index --skip-worktree jupyter/notebooks/01_m_and_a_charts.ipynb
+git update-index --skip-worktree jupyter/notebooks/02_net_change_by_month.ipynb
+```
+
+List skip-worktree files: `git ls-files -v | grep '^S'`
+
+To commit a shared change to one of these files later: `git update-index --no-skip-worktree <path>`, then commit, then re-enable skip-worktree if desired.
+
+Personal versions are still captured by `make migration-bundle` under `local/`.
+
 ### Hosting on a remote server
 
 Same restore steps, plus:
