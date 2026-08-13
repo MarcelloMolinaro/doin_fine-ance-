@@ -64,3 +64,6 @@ dbt/seeds/seed_transaction_exclusions.csv
 backups/*.dump
 backups/schedule.json
 
+# Local migration export bundles (contain secrets + financial data)
+migration_bundle/
+

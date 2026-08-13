@@ -191,6 +191,66 @@ pg_restore -h localhost -U dagster -d dagster -c ./backups/dagster_backup_YYYYMM
 
 The `./backups` directory is mounted from the host, so backups persist across container restarts.
 
+## Migration
+
+Your transaction data lives in **Postgres** and a few **local files that are not in git** (`.env`, seed CSVs, model files, personal code tweaks). Cloning the repo alone is not enough to move to another machine.
+
+### Export (current machine)
+
+With containers running (`make up`):
+
+```bash
+make migration-bundle
+```
+
+This creates `migration_bundle/YYYYMMDD_HHMMSS/` containing:
+
+| Item | Purpose |
+|------|---------|
+| `backups/dagster_backup_*.dump` | Full database (transactions, validations, predictions) |
+| `.env` | SimpleFIN credentials, Postgres volume setting |
+| `config.yaml` | Model settings |
+| `dbt/seeds/*.csv` | Account mappings, historic data, exclusions (if present) |
+| `dagster/models/*.pkl` | Trained classifier (optional — retrain works too) |
+| `local/dagster/classifier_train.py` | Snapshot of your training script (personal filters, etc.) |
+| `local/jupyter/notebooks/` | Your analysis notebooks (including uncommitted edits) |
+| `README.txt` | Quick restore checklist |
+
+Personal customizations live under `local/` so they are clearly separate from the shared repo. The bundle always snapshots the **full** `classifier_train.py` (not just the filter block) — one file to copy back beats merging snippets by hand.
+
+The folder is gitignored. **It contains secrets and financial data** — treat it like a password.
+
+**Google Drive / cloud:** Yes — drag the bundle folder (or a `.zip` of it) into Drive, Dropbox, etc. Use a private folder; consider Drive's encrypted zip or a personal-only share link. Typical bundle size is tens to low hundreds of MB.
+
+### Import (new machine)
+
+1. Install Docker, clone this repo, run `make up`.
+2. Copy bundle contents into the matching project paths (see `README.txt` in the bundle).
+3. Restore personal code (if `local/` is present):
+   ```bash
+   cp local/dagster/classifier_train.py dagster/classifier_train.py
+   cp -R local/jupyter/notebooks/. jupyter/notebooks/
+   ```
+   If you have pulled newer shared repo changes since your export, diff `classifier_train.py` and merge by hand instead of overwriting blindly.
+4. Restore the database — **Backup tab → Restore**, or:
+   ```bash
+   pg_restore -h localhost -U dagster -d dagster -c migration_bundle/.../backups/dagster_backup_*.dump
+   ```
+5. Open http://localhost:5173 and confirm **All Data** shows your transactions.
+
+You do **not** need to re-run Initialize or Ingest after a full restore.
+
+**Without a backup:** You can only recover ~60–145 days from SimpleFIN plus any historic seed CSV — and you lose all manual validations. Always export a bundle before migrating.
+
+### Hosting on a remote server
+
+Same restore steps, plus:
+
+- Set `POSTGRES_VOLUME=postgres_prod` in `.env` for a persistent prod volume.
+- Change default Postgres credentials before exposing anything to the internet.
+- Do **not** expose port 5432 publicly; put HTTPS in front of the UI/API (5173/8000) via a reverse proxy.
+- If accessing remotely, update `VITE_API_URL` in `docker-compose.yml` to your server's backend URL and rebuild the frontend container.
+
 ## ML Transaction Classifier
 
 The project includes a machine learning classifier to automatically categorize financial transactions.
@@ -303,6 +363,8 @@ This project includes a `makefile` with convenient shortcuts:
 - `make logs` - Follow container logs
 - `make psql` - Open Postgres shell
 - `make dbt-compile-restart` - Compile dbt manifest and restart Dagster
+- `make migration-bundle` - Export DB backup + local config/seeds for moving to another machine
+- `make test` - Run backend and Dagster unit tests
 - `make reset-dev-postgres` - ⚠️ Reset dev Postgres database (deletes all data!)
 
 ## Additional Resources
