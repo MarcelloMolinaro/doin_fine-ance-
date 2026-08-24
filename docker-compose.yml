@@ -17,6 +17,7 @@ services:
       - ./config.yaml:/opt/dagster/config.yaml
     command: >
       bash -c "
+      if [ ! -f /opt/dbt/target/manifest.json ]; then dbt compile --project-dir /opt/dbt; fi &&
       dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml &
       dagster-daemon run"
     depends_on:
