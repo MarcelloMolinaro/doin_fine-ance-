@@ -392,6 +392,15 @@ This project includes a `makefile` with convenient shortcuts:
 - `make test` - Run backend and Dagster unit tests
 - `make reset-dev-postgres` - ⚠️ Reset dev Postgres database (deletes all data!)
 
+## Troubleshooting
+
+### `make up` fails with `docker-credential-desktop: executable file not found`
+
+Happens when the Docker CLI (e.g. the Homebrew `docker`) is on PATH but Docker Desktop's `bin/` isn't, and `~/.docker/config.json` has `"credsStore": "desktop"`. Either:
+
+- Add Docker Desktop's helper to PATH: `/Applications/Docker.app/Contents/Resources/bin`, or
+- If you don't have private-registry logins (`"auths": {}` in `~/.docker/config.json`), just remove the `"credsStore": "desktop"` line — public image pulls don't need a credential helper.
+
 ## Additional Resources
 
 - **[3_TEST_COMMANDS.md](3_TEST_COMMANDS.md)**: Useful commands for testing and debugging the pipeline
