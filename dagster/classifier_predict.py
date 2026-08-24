@@ -19,9 +19,16 @@ from common import NUMERICAL_FEATURES, TEXT_FEATURE, get_engine, load_config
     description="Predict categories for uncategorized transactions using the trained model",
     # Depend on the dbt model so predictions never run against a stale
     # fct_trxns_uncategorized (e.g. before newly-validated rows are excluded).
-    deps=[AssetKey(["fct_trxns_uncategorized"])],
+    # train_transaction_classifier is a deps entry (not an input) so Dagster
+    # doesn't try to hydrate it from fs_io_manager storage on a fresh machine
+    # where training has never run locally — the model is loaded below via the
+    # registry / on-disk pkl fallback instead.
+    deps=[
+        AssetKey(["fct_trxns_uncategorized"]),
+        AssetKey("train_transaction_classifier"),
+    ],
 )
-def predict_transaction_categories(context: AssetExecutionContext, load_to_postgres, train_transaction_classifier):
+def predict_transaction_categories(context: AssetExecutionContext, load_to_postgres):
     """
     Predict categories for uncategorized transactions.
     
@@ -75,13 +82,21 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
             
             model_path = Path(file_path)
             if not model_path.exists():
-                raise FileNotFoundError(
-                    f"Model file not found at {file_path} for version {model_version}. "
-                    "The file may have been moved or deleted."
+                fallback = Path("/opt/dagster/app/models/transaction_classifier_latest.pkl")
+                context.log.warning(
+                    f"Registry active model file missing at {file_path} (version {model_version}). "
+                    f"Falling back to {fallback}. Retrain to refresh the registry."
                 )
-            
-            pipeline = joblib.load(model_path)
-            context.log.info(f"Loaded model from registry (version: {model_version}, path: {file_path})")
+                if not fallback.exists():
+                    raise FileNotFoundError(
+                        f"Model file not found at {file_path} and no fallback at {fallback}. "
+                        "Train the model first."
+                    )
+                pipeline = joblib.load(fallback)
+                model_version = pipeline.get('model_version', 'latest')
+            else:
+                pipeline = joblib.load(model_path)
+                context.log.info(f"Loaded model from registry (version: {model_version}, path: {file_path})")
     
     text_vectorizer = pipeline['text_vectorizer']
     numerical_scaler = pipeline['numerical_scaler']
