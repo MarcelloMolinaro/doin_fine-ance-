@@ -149,10 +149,44 @@ def predict_transaction_categories(context: AssetExecutionContext, load_to_postg
     df['predicted_master_category'] = predictions
     df.loc[~high_confidence_mask, 'predicted_master_category'] = 'UNCERTAIN'
     df['prediction_confidence'] = max_probas
-    
-    # Log statistics
-    n_high_confidence = high_confidence_mask.sum()
-    n_uncertain = (~high_confidence_mask).sum()
+
+    # Exact-description override: when the same description has already been
+    # validated with a dominant category, trust that over the RF's uncertain
+    # vote. Catches "I've labeled 9 NVIDIAs Fun!™, why is a 10th UNCERTAIN".
+    exact_match_lookup = pd.read_sql(
+        text("""
+            WITH counts AS (
+                SELECT description, master_category, COUNT(*) AS n
+                FROM analytics.fct_validated_trxns
+                WHERE description IS NOT NULL
+                GROUP BY description, master_category
+            ),
+            totals AS (
+                SELECT description, SUM(n) AS total FROM counts GROUP BY description
+            ),
+            ranked AS (
+                SELECT c.description, c.master_category, c.n::float / t.total AS share, t.total
+                FROM counts c JOIN totals t USING (description)
+            )
+            SELECT description, master_category, share, total
+            FROM ranked
+            WHERE share >= 0.8 AND total >= 2
+        """),
+        engine,
+    )
+    if len(exact_match_lookup) > 0:
+        lookup = exact_match_lookup.set_index('description')
+        matched_mask = df['description'].isin(lookup.index)
+        if matched_mask.any():
+            matched_desc = df.loc[matched_mask, 'description']
+            df.loc[matched_mask, 'predicted_master_category'] = matched_desc.map(lookup['master_category']).values
+            df.loc[matched_mask, 'prediction_confidence'] = matched_desc.map(lookup['share']).values
+            n_exact = int(matched_mask.sum())
+            context.log.info(f"Exact-description rule applied to {n_exact} transaction(s)")
+
+    # Log statistics (recomputed to reflect exact-match overrides)
+    n_high_confidence = int((df['predicted_master_category'] != 'UNCERTAIN').sum())
+    n_uncertain = int((df['predicted_master_category'] == 'UNCERTAIN').sum())
     context.log.info(f"High confidence predictions: {n_high_confidence} ({n_high_confidence/len(df)*100:.1f}%)")
     context.log.info(f"Uncertain predictions: {n_uncertain} ({n_uncertain/len(df)*100:.1f}%)")
     
