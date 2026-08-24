@@ -42,7 +42,13 @@ migration-bundle:
 	echo "Creating migration bundle at $$BUNDLE ..."; \
 	if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx postgres; then \
 		echo "  → fresh pg_dump"; \
-		docker exec postgres pg_dump -U dagster -Fc -f - dagster > "$$BUNDLE/backups/dagster_backup_$$TS.dump"; \
+		docker exec postgres pg_dump -U dagster -Fc -f /tmp/dagster_backup.dump dagster; \
+		docker cp postgres:/tmp/dagster_backup.dump "$$BUNDLE/backups/dagster_backup_$$TS.dump"; \
+		docker exec postgres rm -f /tmp/dagster_backup.dump; \
+		if [ ! -s "$$BUNDLE/backups/dagster_backup_$$TS.dump" ]; then \
+			echo "  ✗ dump is empty — aborting"; \
+			exit 1; \
+		fi; \
 	else \
 		echo "  ⚠ postgres not running — skipping fresh dump"; \
 		if ls backups/*.dump >/dev/null 2>&1; then \
