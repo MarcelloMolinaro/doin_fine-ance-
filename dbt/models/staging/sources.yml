@@ -7,6 +7,9 @@ sources:
     tables:
       - name: predicted_transactions
         description: "Predicted transactions from the transaction classifier."
+        meta:
+          dagster:
+            asset_key: ["predict_transaction_categories"]
         columns:
           - name: transaction_id
           - name: predicted_master_category

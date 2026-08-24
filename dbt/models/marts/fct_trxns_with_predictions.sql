@@ -1,7 +1,8 @@
 {{ config(
-    materialized = 'view'
+    materialized = 'table',
+    indexes = [{'columns': ['transaction_id'], 'unique': True}]
 ) }}
--- Convert back to view if too slow loading into UI
+-- Table (not view) so UI tabs don't re-run the multi-source query per load.
 
 with 
 

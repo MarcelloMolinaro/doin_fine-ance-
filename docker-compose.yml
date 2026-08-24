@@ -36,6 +36,8 @@ services:
     image: postgres:15
     container_name: postgres
     restart: unless-stopped
+    # jit=off: ~500ms overhead per UI tab query, no win at this row count.
+    command: ["postgres", "-c", "jit=off"]
     environment:
       POSTGRES_USER: dagster
       POSTGRES_PASSWORD: dagster
