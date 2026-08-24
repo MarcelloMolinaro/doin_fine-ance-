@@ -6,6 +6,7 @@
 - [ ] Upgrade Postgres 15 → 17/18 (optional)
 
 ## Other
+- [ ] Switch `ui/frontend/Dockerfile` from `npm install` to `npm ci` and keep `package-lock.json` committed (proper reproducibility). Context: PR #5.
 - [ ] dbt hardening: materialize key views if perf/timing becomes an issue
 - [ ] Scroll-to-top on long pages (optional UX)
 - [ ] Show job progress/completion status after clicking Run buttons in the Web UI (right now the click gives no feedback until the job finishes). Tiers:
