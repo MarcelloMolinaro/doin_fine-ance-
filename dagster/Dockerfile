@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir \
     dagster-postgres \
     dagster-dbt \
     pandas \
-    SQLAlchemy \
+    "SQLAlchemy>=2.0,<2.1" \
     requests \
     psycopg2-binary \
     dbt-postgres \
